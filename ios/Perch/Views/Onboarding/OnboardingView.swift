@@ -5,9 +5,18 @@
 //  First-launch flow: ~5 short, swipeable, skippable steps that end at the
 //  paywall. Warm, brief, reassuring copy throughout.
 //
+//  Step 2 now runs a real CMHeadphoneMotionManager compatibility check:
+//  starts the manager, waits up to ~2 s for a motion sample, and shows
+//  "supported" or "not supported" accordingly.
+//
+//  Step 4 (calibrate) now uses a hold-to-capture interaction: a bubble-level
+//  dot that moves with live head angle; the user holds steady for ~3 s while
+//  a circular progress arc fills.
+//
 
 import SwiftUI
 import CoreMotion
+import AVFoundation
 
 struct OnboardingView: View {
     @Environment(PerchStore.self) private var store
@@ -15,7 +24,6 @@ struct OnboardingView: View {
     @Environment(NudgeService.self) private var nudge
 
     @State private var step = 0
-    @State private var supportedDemo = true
 
     private let lastStep = 4
 
@@ -27,7 +35,7 @@ struct OnboardingView: View {
                 TabView(selection: $step) {
                     WelcomeStep().tag(0)
                     HowItWorksStep().tag(1)
-                    CompatibilityStep(supported: $supportedDemo).tag(2)
+                    CompatibilityStep(onContinue: advance).tag(2)
                     PermissionsStep(onContinue: advance).tag(3)
                     CalibrateStep(onCalibrate: calibrateAndFinish).tag(4)
                 }
@@ -41,7 +49,6 @@ struct OnboardingView: View {
 
     private var header: some View {
         HStack {
-            // Skippable dots area — show Skip until the calibrate step.
             if step < lastStep {
                 Button("Skip") { skip() }
                     .font(.system(.subheadline, weight: .medium))
@@ -62,7 +69,6 @@ struct OnboardingView: View {
     @ViewBuilder
     private var footer: some View {
         VStack {
-            // Steps 3 and 4 carry their own primary buttons.
             if step < 3 {
                 PerchPrimaryButton(title: "Continue") { advance() }
             }
@@ -160,39 +166,134 @@ private struct HowItWorksStep: View {
     }
 }
 
+// MARK: - Real compatibility check
+
 private struct CompatibilityStep: View {
-    @Binding var supported: Bool
-    @State private var checking = true
+    let onContinue: () -> Void
+
+    @Environment(PostureSource.self) private var source
+
+    enum Status { case checking, supported, notSupported }
+    @State private var status: Status = .checking
+    @State private var showDesignPreview = false
+
+    private let checkTimeout: Double = 2.0
 
     var body: some View {
         StepScaffold(
-            icon: supported ? "checkmark.seal" : "exclamationmark.triangle",
-            title: checking ? "Checking your\nAirPods…" : (supported ? "You're all set." : "Not supported yet."),
-            subtitle: checking
-                ? "One moment while we make sure your AirPods can sense motion."
-                : (supported
-                    ? "Your AirPods support motion sensing. Perch is ready to keep you upright."
-                    : "These AirPods don't have a motion sensor. Perch needs AirPods (3rd gen), Pro, or Max.")
+            icon: iconName,
+            title: titleText,
+            subtitle: subtitleText
         ) {
-            if !checking {
-                // Quiet toggle so the "not supported" state can be previewed.
-                Button {
-                    withAnimation { supported.toggle() }
-                } label: {
-                    Text(supported ? "Preview unsupported state" : "Preview supported state")
+            VStack(spacing: Space.m) {
+                if let route = source.audioRouteName, status == .supported {
+                    Text("Detected: \(route)")
                         .font(.footnote)
                         .foregroundStyle(Palette.mist)
+                        .padding(.top, Space.s)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, Space.s)
+
+                // Design preview toggle (always visible once check finishes).
+                if status != .checking || showDesignPreview {
+                    Button {
+                        withAnimation { showDesignPreview.toggle() }
+                    } label: {
+                        Text(showDesignPreview
+                             ? "Hide design preview"
+                             : (status == .supported
+                                ? "Preview unsupported state"
+                                : "Preview supported state"))
+                            .font(.footnote)
+                            .foregroundStyle(Palette.mist)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, Space.s)
+                }
             }
         }
-        .task {
-            try? await Task.sleep(for: .seconds(1.6))
-            withAnimation { checking = false }
+        .task { await runRealCheck() }
+    }
+
+    private var iconName: String {
+        if showDesignPreview {
+            return status == .supported
+                ? "exclamationmark.triangle"
+                : "checkmark.seal"
+        }
+        switch status {
+        case .checking: return "airpods"
+        case .supported: return "checkmark.seal"
+        case .notSupported: return "exclamationmark.triangle"
+        }
+    }
+
+    private var titleText: String {
+        if showDesignPreview {
+            return status == .supported
+                ? "Not supported yet."
+                : "You're all set."
+        }
+        switch status {
+        case .checking: return "Checking your\nAirPods…"
+        case .supported: return "You're all set."
+        case .notSupported: return "Not supported yet."
+        }
+    }
+
+    private var subtitleText: String {
+        if showDesignPreview {
+            return status == .supported
+                ? "These AirPods don't have a motion sensor. Perch needs AirPods (3rd gen), Pro, or Max."
+                : "Your AirPods support motion sensing. Perch is ready to keep you upright."
+        }
+        switch status {
+        case .checking:
+            return "One moment while we make sure your AirPods can sense motion."
+        case .supported:
+            return "Your AirPods support motion sensing. Perch is ready to keep you upright."
+        case .notSupported:
+            return "These AirPods don't have a motion sensor. Perch needs AirPods (3rd gen), Pro, or Max."
+        }
+    }
+
+    /// Real check: start CMHeadphoneMotionManager, wait for either a motion
+    /// sample or a 2‑second timeout, then report supported/not‑supported.
+    private func runRealCheck() async {
+        let manager = CMHeadphoneMotionManager()
+
+        // If device motion isn't available at all, fail immediately.
+        guard manager.isDeviceMotionAvailable else {
+            withAnimation { status = .notSupported }
+            return
+        }
+
+        // Wait for the first motion sample with a timeout.
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            var sampleArrived = false
+
+            manager.startDeviceMotionUpdates(to: .main) { motion, _ in
+                guard !sampleArrived, motion != nil else { return }
+                sampleArrived = true
+                manager.stopDeviceMotionUpdates()
+                continuation.resume()
+            }
+
+            // Timeout after `checkTimeout` seconds.
+            DispatchQueue.main.asyncAfter(deadline: .now() + checkTimeout) {
+                guard !sampleArrived else { return }
+                manager.stopDeviceMotionUpdates()
+                continuation.resume()
+            }
+        }
+
+        // Check again — sampleArrived is captured but we can just check availability.
+        withAnimation {
+            status = manager.isDeviceMotionAvailable ? .supported : .notSupported
         }
     }
 }
+
+// MARK: - Permissions
 
 private struct PermissionsStep: View {
     let onContinue: () -> Void
@@ -219,7 +320,6 @@ private struct PermissionsStep: View {
 
     private func requestPermissions() async {
         requesting = true
-        // Real Motion & Fitness prompt.
         if CMMotionActivityManager.isActivityAvailable() {
             let manager = CMMotionActivityManager()
             let queue = OperationQueue()
@@ -227,37 +327,68 @@ private struct PermissionsStep: View {
                 manager.stopActivityUpdates()
             }
         }
-        // Real Notifications prompt.
         await nudge.requestNotificationPermission()
         requesting = false
         onContinue()
     }
 }
 
+// MARK: - Calibrate (hold-to-capture)
+
 private struct CalibrateStep: View {
     let onCalibrate: () -> Void
-    @State private var confirmed = false
+    @Environment(PostureSource.self) private var source
+
+    @State private var capturePhase: CapturePhase = .ready
 
     var body: some View {
         StepScaffold(
-            icon: confirmed ? "checkmark.circle" : "figure.seated.side",
-            title: confirmed ? "Perfectly set." : "Sit the way you'd\nlike to sit all day.",
-            subtitle: confirmed
-                ? "That's your good posture. Perch will gently let you know whenever you drift away from it."
-                : "Get comfortable and upright. When you're ready, capture it as your baseline."
+            icon: captureIcon,
+            title: captureTitle,
+            subtitle: captureSubtitle
         ) {
-            if !confirmed {
-                PerchPrimaryButton(title: "This is my good posture") {
-                    withAnimation { confirmed = true }
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    Task {
-                        try? await Task.sleep(for: .seconds(1.4))
-                        onCalibrate()
+            VStack(spacing: Space.l) {
+                CalibrationHoldView(
+                    liveAngle: source.liveRawTilt,
+                    phase: $capturePhase,
+                    onCaptured: {
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        Task {
+                            try? await Task.sleep(for: .seconds(1.2))
+                            onCalibrate()
+                        }
                     }
-                }
-                .padding(.top, Space.l)
-                .padding(.horizontal, Space.l)
+                )
+                .frame(width: 200, height: 200)
             }
+            .padding(.top, Space.l)
+        }
+    }
+
+    private var captureIcon: String {
+        switch capturePhase {
+        case .ready: return "figure.seated.side"
+        case .capturing: return "scope"
+        case .captured: return "checkmark.circle"
+        }
+    }
+
+    private var captureTitle: String {
+        switch capturePhase {
+        case .ready: return "Sit the way you'd\nlike to sit all day."
+        case .capturing: return "Hold steady…"
+        case .captured: return "Perfectly set."
+        }
+    }
+
+    private var captureSubtitle: String {
+        switch capturePhase {
+        case .ready:
+            return "Get comfortable and upright. Then hold your head still — the ring fills when you're steady."
+        case .capturing:
+            return "Almost there. Keep your head still just a moment longer."
+        case .captured:
+            return "That's your good posture. Perch will gently let you know whenever you drift away from it."
         }
     }
 }

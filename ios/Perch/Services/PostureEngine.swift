@@ -18,6 +18,8 @@ final class PostureEngine {
     private(set) var state: PostureState = .idle
     /// Today's rolling upright percentage (0...100).
     private(set) var uprightPct: Double = 0
+    /// Seconds the user has been monitored today (drives "warming up" state).
+    var monitoredSeconds: Double { today.monitoredSeconds }
     /// Snooze countdown end, if active.
     private(set) var snoozeUntil: Date?
 

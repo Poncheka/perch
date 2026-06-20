@@ -57,6 +57,12 @@ final class PerchStore {
         db.hasOnboarded = true
     }
 
+    /// Reset the onboarding flag so the onboarding flow replays (Dev Panel use).
+    func resetOnboarding() {
+        hasOnboarded = false
+        db.hasOnboarded = false
+    }
+
     // MARK: - Posture days
 
     /// The record for today, creating an empty one if needed.

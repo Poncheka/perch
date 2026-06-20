@@ -5,6 +5,11 @@
 //  Oura-style, sparse history: today's upright % as a hero, a minimal 7-day and
 //  30-day trend, and one encouraging plain-language insight line.
 //
+//  New additions (all frame around the Upright % metric, not health claims):
+//    - Streak card: consecutive days with any monitoring.
+//    - Verdict card: buckets the 7-day average into Strong / Getting there / Room to grow.
+//    - Progress projection: estimates weeks to "Strong" band if trending up.
+//
 
 import SwiftUI
 
@@ -21,8 +26,11 @@ struct HistoryView: View {
             ScrollView {
                 VStack(spacing: Space.xxl) {
                     hero
+                    streakCard
+                    verdictCard
                     trendCard(title: "Last 7 days", days: week, asBars: true)
                     trendCard(title: "Last 30 days", days: month, asBars: false)
+                    progressCard
                     insight
                 }
                 .padding(.horizontal, Space.xl)
@@ -56,6 +64,109 @@ struct HistoryView: View {
         .padding(.top, Space.l)
     }
 
+    // MARK: - Streak card
+
+    private var streakCard: some View {
+        SoftCard {
+            HStack(spacing: Space.l) {
+                Image(systemName: "flame")
+                    .font(.system(size: 22, weight: .light))
+                    .foregroundStyle(streakDays > 0 ? Palette.amber : Palette.mist)
+                VStack(alignment: .leading, spacing: 3) {
+                    if streakDays > 0 {
+                        Text("\(streakDays)-day streak")
+                            .font(.system(.title3, weight: .semibold))
+                            .foregroundStyle(Palette.ink)
+                    } else {
+                        Text("No streak yet")
+                            .font(.system(.title3, weight: .semibold))
+                            .foregroundStyle(Palette.ink)
+                    }
+                    Text("Keep your AirPods in daily to build a streak.")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.mist)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    /// Count consecutive days (backward from today) with monitoredSeconds > 0.
+    private var streakDays: Int {
+        let cal = Calendar.current
+        let days = store.recentDays(90).sorted { $0.date > $1.date }
+        var count = 0
+        var expected = cal.startOfDay(for: Date())
+
+        for day in days {
+            guard cal.isDate(day.date, inSameDayAs: expected) else { break }
+            if day.monitoredSeconds > 0 {
+                count += 1
+                expected = cal.date(byAdding: .day, value: -1, to: expected) ?? expected
+            } else {
+                break
+            }
+        }
+        return count
+    }
+
+    // MARK: - Verdict card
+
+    private var verdictCard: some View {
+        let avg = averagePct(week)
+        let bucket = verdictBucket(avg)
+        return SoftCard {
+            HStack(spacing: Space.l) {
+                Image(systemName: bucket.icon)
+                    .font(.system(size: 22, weight: .light))
+                    .foregroundStyle(bucket.color)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(bucket.label)
+                        .font(.system(.title3, weight: .semibold))
+                        .foregroundStyle(bucket.color)
+                    Text(bucket.copy)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.mist)
+                        .lineSpacing(2)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private struct VerdictBucket {
+        let label: String
+        let icon: String
+        let color: Color
+        let copy: String
+    }
+
+    private func verdictBucket(_ avg: Int) -> VerdictBucket {
+        switch avg {
+        case 80...100:
+            return VerdictBucket(
+                label: "Strong",
+                icon: "star",
+                color: Palette.sage,
+                copy: "You're holding steady in the strong band. Your posture habits are serving you well."
+            )
+        case 60..<80:
+            return VerdictBucket(
+                label: "Getting there",
+                icon: "leaf",
+                color: Palette.amber,
+                copy: "You're making real progress. A few more mindful moments each day and you'll be in the strong zone."
+            )
+        default:
+            return VerdictBucket(
+                label: "Room to grow",
+                icon: "sparkles",
+                color: Palette.amber,
+                copy: "Every upright minute counts. Perch is here to gently remind you — small shifts add up fast."
+            )
+        }
+    }
+
     // MARK: - Trend cards
 
     private func trendCard(title: String, days: [PostureDay], asBars: Bool) -> some View {
@@ -83,6 +194,71 @@ struct HistoryView: View {
         let active = days.filter { $0.monitoredSeconds > 0 }
         guard !active.isEmpty else { return 0 }
         return Int((active.map(\.uprightPct).reduce(0, +) / Double(active.count)).rounded())
+    }
+
+    // MARK: - Progress projection
+
+    private var progressCard: some View {
+        SoftCard {
+            HStack(spacing: Space.l) {
+                Image(systemName: projectionIcon)
+                    .font(.system(size: 22, weight: .light))
+                    .foregroundStyle(Palette.sage)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(projectionTitle)
+                        .font(.system(.callout, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                    Text(projectionCopy)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.mist)
+                        .lineSpacing(2)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private var projectionIcon: String {
+        if weeklyTrend > 0 { return "arrow.up.forward" }
+        if weeklyTrend < 0 { return "leaf" }
+        return "equal"
+    }
+
+    private var projectionTitle: String {
+        if weeklyTrend > 0, let weeks = projectedWeeks {
+            return "At this pace, ~\(weeks) weeks to consistently strong"
+        }
+        if weeklyTrend < 0 {
+            return "Gentle encouragement"
+        }
+        return "Steady as you go"
+    }
+
+    private var projectionCopy: String {
+        if weeklyTrend > 0, projectedWeeks != nil {
+            return "Your weekly average is trending up. Keep at it — you're building a lasting habit."
+        }
+        if weeklyTrend < 0 {
+            return "Upright time dipped a bit this week. No worries — Perch will keep nudging you gently. Every day is a fresh start."
+        }
+        return "Your posture is holding steady week over week. Consistency is exactly the goal — no big swings needed."
+    }
+
+    /// Weekly trend: this week's average minus last week's average.
+    private var weeklyTrend: Double {
+        let thisWeek = averagePct(store.recentDays(7))
+        let lastWeek = averagePct(Array(store.recentDays(14).prefix(7)))
+        return Double(thisWeek - lastWeek)
+    }
+
+    /// Estimate weeks to 80% based on weekly trend, if positive.
+    private var projectedWeeks: Int? {
+        guard weeklyTrend > 0 else { return nil }
+        let current = Double(averagePct(week))
+        guard current < 80 else { return nil }
+        let delta = max(weeklyTrend, 0.5)
+        let weeks = (80 - current) / delta
+        return Int(weeks.rounded(.up))
     }
 
     // MARK: - Insight
@@ -161,7 +337,6 @@ private struct LineTrend: View {
             let points = positions(in: CGSize(width: w, height: h))
             ZStack {
                 if points.count > 1 {
-                    // Soft fill under the line.
                     fillPath(points: points, height: h)
                         .fill(
                             LinearGradient(

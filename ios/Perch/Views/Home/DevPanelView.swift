@@ -3,8 +3,9 @@
 //  Perch
 //
 //  Hidden developer panel (triple-tap the Home numeral). Lets us force every
-//  state by hand: a manual neckAngle slider, an AirPods toggle, and simulated
-//  call / movement context — all driven through the single PostureSource.
+//  state by hand: a manual neckAngle slider, an AirPods toggle, simulated
+//  call / movement context, source mode switch (Real vs Simulated), and a
+//  "Replay onboarding" button.
 //
 
 import SwiftUI
@@ -14,18 +15,35 @@ struct DevPanelView: View {
     @Environment(PostureSource.self) private var source
     @Environment(PerchStore.self) private var store
 
+    @State private var pendingMode: PostureSource.SourceMode?
+
     var body: some View {
         @Bindable var source = source
 
         NavigationStack {
             Form {
                 Section {
-                    Toggle("AirPods connected", isOn: $source.airpodsConnected)
+                    Picker("Sensor source", selection: $pendingMode) {
+                        Text("Simulated").tag(PostureSource.SourceMode.simulated)
+                        Text("Real (AirPods)").tag(PostureSource.SourceMode.real)
+                    }
+                    .pickerStyle(.segmented)
+                    .onAppear { pendingMode = source.sourceMode }
+                    .onChange(of: pendingMode) { _, newValue in
+                        if let mode = newValue {
+                            source.setSourceMode(mode)
+                        }
+                    }
+
+                    Toggle("AirPods override", isOn: $source.manualAirpodsOverride)
+                    if source.manualAirpodsOverride {
+                        Toggle("AirPods connected", isOn: $source.manualAirpodsValue)
+                    }
                     Toggle("Manual angle override", isOn: $source.manualOverride)
                 } header: {
                     Text("Sensor")
                 } footer: {
-                    Text("All values flow through PostureSource — the single signal the whole app reads.")
+                    Text("All values flow through PostureSource — the single signal the whole app reads. Real requires AirPods (3rd gen), Pro, or Max with motion sensors.")
                 }
 
                 Section("Neck angle") {
@@ -49,6 +67,19 @@ struct DevPanelView: View {
                 Section("Simulated context") {
                     Toggle("On a call", isOn: $source.isOnCall)
                     Toggle("Moving / walking", isOn: $source.isMoving)
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        store.resetOnboarding()
+                        dismiss()
+                    } label: {
+                        Label("Replay onboarding", systemImage: "arrow.counterclockwise")
+                    }
+                } header: {
+                    Text("Development")
+                } footer: {
+                    Text("Resets the onboarding flag and relaunches the onboarding flow. Use this to review onboarding screens during development.")
                 }
             }
             .navigationTitle("Developer")

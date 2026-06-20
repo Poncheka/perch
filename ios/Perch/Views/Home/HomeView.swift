@@ -20,8 +20,10 @@ struct HomeView: View {
     @State private var tapCount = 0
     @State private var tapResetTask: Task<Void, Never>?
 
-    /// Deep navy focus surface while actively monitoring (good or slouching).
+    /// Deep navy focus surface while actively monitoring (good or slouching),
+    /// unless we're still warming up.
     private var useFocusSurface: Bool {
+        guard !isWarmingUp else { return false }
         switch engine.state {
         case .monitoringGood, .monitoringSlouch, .nudging: return true
         case .idle, .muted: return false
@@ -32,6 +34,12 @@ struct HomeView: View {
         let t = store.profile.slouchThreshold
         guard t > 0 else { return 0 }
         return min(1, max(0, source.neckAngle / t))
+    }
+
+    /// The monitoredSeconds threshold for showing a real value (150 s).
+    private let warmupThreshold: Double = 150
+    private var isWarmingUp: Bool {
+        engine.state.isMonitoring && engine.monitoredSeconds < warmupThreshold
     }
 
     var body: some View {
@@ -110,7 +118,8 @@ struct HomeView: View {
                 percent: engine.uprightPct,
                 color: ringColorForSurface,
                 isMonitoring: engine.state.isMonitoring,
-                slouchProgress: slouchProgress
+                slouchProgress: slouchProgress,
+                isWarmingUp: isWarmingUp
             )
             .overlay { ringNumberTapTarget }
 
@@ -132,13 +141,21 @@ struct HomeView: View {
 
     private var statusLine: some View {
         VStack(spacing: Space.s) {
-            Text(engine.state.statusLine)
-                .font(.system(.title3, design: .default, weight: .regular))
-                .foregroundStyle(primaryText)
-                .multilineTextAlignment(.center)
-                .transition(.opacity)
-                .id(engine.state.statusLine)
-                .animation(.easeInOut(duration: 0.4), value: engine.state.statusLine)
+            if isWarmingUp {
+                Text("Warming up — keep your AirPods in a little longer.")
+                    .font(.system(.title3, design: .default, weight: .regular))
+                    .foregroundStyle(primaryText)
+                    .multilineTextAlignment(.center)
+                    .transition(.opacity)
+            } else {
+                Text(engine.state.statusLine)
+                    .font(.system(.title3, design: .default, weight: .regular))
+                    .foregroundStyle(primaryText)
+                    .multilineTextAlignment(.center)
+                    .transition(.opacity)
+                    .id(engine.state.statusLine)
+                    .animation(.easeInOut(duration: 0.4), value: engine.state.statusLine)
+            }
 
             if let reason = engine.muteReason {
                 Eyebrow(text: reason, color: secondaryText)
