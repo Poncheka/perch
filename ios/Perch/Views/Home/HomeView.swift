@@ -147,6 +147,14 @@ struct HomeView: View {
                     .foregroundStyle(primaryText)
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
+            } else if engine.state == .muted, let line = engine.muteStatusLine {
+                Text(line)
+                    .font(.system(.title3, design: .default, weight: .regular))
+                    .foregroundStyle(primaryText)
+                    .multilineTextAlignment(.center)
+                    .transition(.opacity)
+                    .id(line)
+                    .animation(.easeInOut(duration: 0.4), value: line)
             } else {
                 Text(engine.state.statusLine)
                     .font(.system(.title3, design: .default, weight: .regular))
@@ -155,10 +163,6 @@ struct HomeView: View {
                     .transition(.opacity)
                     .id(engine.state.statusLine)
                     .animation(.easeInOut(duration: 0.4), value: engine.state.statusLine)
-            }
-
-            if let reason = engine.muteReason {
-                Eyebrow(text: reason, color: secondaryText)
             }
         }
         .frame(maxWidth: 320)

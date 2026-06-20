@@ -45,7 +45,7 @@ enum PostureState: Equatable {
         case .monitoringGood: return "You're sitting tall."
         case .monitoringSlouch: return "Ease your head back up."
         case .nudging: return "Ease your head back up."
-        case .muted: return "Paused for now. Enjoy the moment."
+        case .muted: return "" // Overridden by PostureEngine.muteStatusLine.
         }
     }
 }

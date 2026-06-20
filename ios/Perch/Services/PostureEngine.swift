@@ -80,6 +80,8 @@ final class PostureEngine {
 
     func cancelSnooze() {
         snoozeUntil = nil
+        // Immediately recompute posture state so the status line updates at once.
+        sample()
     }
 
     var isSnoozing: Bool {
@@ -171,6 +173,19 @@ final class PostureEngine {
     }
 
     var muteReason: String? { currentMuteReason() }
+
+    /// Human-readable status line for each mute reason, so the UI never shows the ambiguous
+    /// generic `.muted` copy when we know exactly why monitoring is silent.
+    var muteStatusLine: String? {
+        guard let reason = currentMuteReason() else { return nil }
+        switch reason {
+        case "Snoozed": return "Paused for now. Enjoy the moment."
+        case "Quiet hours": return "Quiet hours — resting."
+        case "On a call": return "Muted while you're on a call."
+        case "Moving": return "Muted while you're moving."
+        default: return nil
+        }
+    }
 
     private func isWithinQuietHours() -> Bool {
         let profile = store.profile
