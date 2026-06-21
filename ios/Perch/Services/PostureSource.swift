@@ -94,9 +94,18 @@ final class PostureSource: NSObject {
 
     override init() {
         super.init()
+        configureAudioSession()
         motionManager.delegate = self
         updateAudioRoute()
         start()
+    }
+
+    /// Configure AVAudioSession minimally for route-name queries.
+    /// Uses `.ambient` so it never interrupts other audio.
+    private func configureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.ambient, mode: .default)
+        try? session.setActive(true)
     }
 
     // MARK: - Lifecycle
