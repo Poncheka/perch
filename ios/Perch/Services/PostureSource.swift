@@ -92,11 +92,13 @@ final class PostureSource: NSObject {
 
     // MARK: - Init
 
+    /// The source is created inert — it does NOT start the sensor or trigger
+    /// any permission prompts. Call `start()` explicitly when motion monitoring
+    /// should begin (after onboarding, or on relaunch if already onboarded).
     override init() {
         super.init()
         motionManager.delegate = self
         updateAudioRoute()
-        start()
     }
 
     // MARK: - Lifecycle

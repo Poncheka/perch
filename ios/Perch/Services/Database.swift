@@ -21,6 +21,8 @@ final class Database {
         static let subscription = "perch.subscription"
         static let days = "perch.posture_days"
         static let onboarded = "perch.hasOnboarded"
+        static let circles = "perch.circles"
+        static let circleMembers = "perch.circle_members"
     }
 
     init() {
@@ -82,9 +84,73 @@ final class Database {
 
     /// Reset everything (used on sign out for a clean demo).
     func wipe() {
-        [Key.profile, Key.subscription, Key.days, Key.onboarded].forEach {
+        [Key.profile, Key.subscription, Key.days, Key.onboarded,
+         Key.circles, Key.circleMembers].forEach {
             defaults.removeObject(forKey: $0)
         }
+    }
+
+    // MARK: - circles
+
+    func loadCircles() -> [CircleModel] {
+        decode([CircleModel].self, forKey: Key.circles) ?? []
+    }
+
+    func saveCircle(_ circle: CircleModel) {
+        var circles = loadCircles()
+        if let idx = circles.firstIndex(where: { $0.id == circle.id }) {
+            circles[idx] = circle
+        } else {
+            circles.append(circle)
+        }
+        encode(circles, forKey: Key.circles)
+    }
+
+    func deleteCircle(_ id: String) {
+        var circles = loadCircles()
+        circles.removeAll { $0.id == id }
+        encode(circles, forKey: Key.circles)
+        var members = loadCircleMembers()
+        members.removeAll { $0.circleId == id }
+        encode(members, forKey: Key.circleMembers)
+    }
+
+    func findCircleByInviteCode(_ code: String) -> CircleModel? {
+        loadCircles().first { $0.inviteCode.uppercased() == code.uppercased() }
+    }
+
+    // MARK: - circle_members
+
+    func loadCircleMembers() -> [CircleMember] {
+        decode([CircleMember].self, forKey: Key.circleMembers) ?? []
+    }
+
+    func loadMembers(for circleId: String) -> [CircleMember] {
+        loadCircleMembers().filter { $0.circleId == circleId }
+    }
+
+    func saveCircleMember(_ member: CircleMember) {
+        var members = loadCircleMembers()
+        if let idx = members.firstIndex(where: { $0.id == member.id }) {
+            members[idx] = member
+        } else {
+            members.append(member)
+        }
+        encode(members, forKey: Key.circleMembers)
+    }
+
+    func removeMember(_ memberId: String) {
+        var members = loadCircleMembers()
+        members.removeAll { $0.id == memberId }
+        encode(members, forKey: Key.circleMembers)
+    }
+
+    /// Circles the given user belongs to.
+    func circlesForUser(_ userId: String) -> [CircleModel] {
+        let memberIds = Set(loadCircleMembers()
+            .filter { $0.userId == userId }
+            .map(\.circleId))
+        return loadCircles().filter { memberIds.contains($0.id) }
     }
 
     // MARK: - Codable helpers

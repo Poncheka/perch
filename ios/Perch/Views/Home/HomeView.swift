@@ -17,18 +17,9 @@ struct HomeView: View {
     @State private var showDevPanel = false
     @State private var showHistory = false
     @State private var showSettings = false
+    @State private var showCircles = false
     @State private var tapCount = 0
     @State private var tapResetTask: Task<Void, Never>?
-
-    /// Deep navy focus surface while actively monitoring (good or slouching),
-    /// unless we're still warming up.
-    private var useFocusSurface: Bool {
-        guard !isWarmingUp else { return false }
-        switch engine.state {
-        case .monitoringGood, .monitoringSlouch, .nudging: return true
-        case .idle, .muted: return false
-        }
-    }
 
     private var slouchProgress: Double {
         let t = store.profile.slouchThreshold
@@ -44,38 +35,14 @@ struct HomeView: View {
 
     var body: some View {
         ZStack {
-            background
+            PerchBackground()
             content
         }
-        .animation(.easeInOut(duration: 0.8), value: useFocusSurface)
         .sheet(isPresented: $showDevPanel) { DevPanelView() }
         .sheet(isPresented: $showHistory) { HistoryView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
+        .sheet(isPresented: $showCircles) { CirclesView() }
     }
-
-    // MARK: - Background
-
-    @ViewBuilder
-    private var background: some View {
-        if useFocusSurface {
-            ZStack {
-                Palette.navy
-                RadialGradient(
-                    colors: [engine.state.ringColor.opacity(0.16), .clear],
-                    center: .center,
-                    startRadius: 40,
-                    endRadius: 420
-                )
-            }
-            .ignoresSafeArea()
-        } else {
-            PerchBackground()
-        }
-    }
-
-    private var onFocus: Bool { useFocusSurface }
-    private var primaryText: Color { onFocus ? Palette.cream : Palette.ink }
-    private var secondaryText: Color { onFocus ? Color(hex: 0x9FB0B6) : Palette.mist }
 
     // MARK: - Content
 
@@ -95,7 +62,7 @@ struct HomeView: View {
         HStack {
             quietIcon("chart.bar") { showHistory = true }
             Spacer()
-            Eyebrow(text: "Today", color: secondaryText)
+            Eyebrow(text: "Today", color: Palette.mist)
             Spacer()
             quietIcon("slider.horizontal.3") { showSettings = true }
         }
@@ -106,7 +73,7 @@ struct HomeView: View {
         Button(action: action) {
             Image(systemName: name)
                 .font(.system(size: 17, weight: .medium))
-                .foregroundStyle(secondaryText)
+                .foregroundStyle(Palette.mist)
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
@@ -116,7 +83,7 @@ struct HomeView: View {
         VStack(spacing: Space.xxl) {
             StatusRing(
                 percent: engine.uprightPct,
-                color: ringColorForSurface,
+                color: engine.state.ringColor,
                 isMonitoring: engine.state.isMonitoring,
                 slouchProgress: slouchProgress,
                 isWarmingUp: isWarmingUp
@@ -124,11 +91,11 @@ struct HomeView: View {
             .overlay { ringNumberTapTarget }
 
             statusLine
+            circlesCard
         }
     }
 
-    /// On the navy focus surface the inner numeral needs to read cream.
-    private var ringColorForSurface: Color { engine.state.ringColor }
+
 
     /// Invisible triple-tap target over the numeral to open the dev panel.
     private var ringNumberTapTarget: some View {
@@ -144,13 +111,13 @@ struct HomeView: View {
             if isWarmingUp {
                 Text("Warming up — keep your AirPods in a little longer.")
                     .font(.system(.title3, design: .default, weight: .regular))
-                    .foregroundStyle(primaryText)
+                    .foregroundStyle(Palette.ink)
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
             } else if engine.state == .muted, let line = engine.muteStatusLine {
                 Text(line)
                     .font(.system(.title3, design: .default, weight: .regular))
-                    .foregroundStyle(primaryText)
+                    .foregroundStyle(Palette.ink)
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
                     .id(line)
@@ -158,7 +125,7 @@ struct HomeView: View {
             } else {
                 Text(engine.state.statusLine)
                     .font(.system(.title3, design: .default, weight: .regular))
-                    .foregroundStyle(primaryText)
+                    .foregroundStyle(Palette.ink)
                     .multilineTextAlignment(.center)
                     .transition(.opacity)
                     .id(engine.state.statusLine)
@@ -167,6 +134,70 @@ struct HomeView: View {
         }
         .frame(maxWidth: 320)
     }
+
+    // MARK: - Circles card
+
+    @ViewBuilder
+    private var circlesCard: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            showCircles = true
+        } label: {
+            HStack(spacing: Space.l) {
+                Image(systemName: "person.2")
+                    .font(.system(size: 20, weight: .light))
+                    .foregroundStyle(Palette.sage)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(circlesCardTitle)
+                        .font(.system(.subheadline, weight: .medium))
+                        .foregroundStyle(Palette.ink)
+                    Text(circlesCardSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(Palette.mist)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Palette.mist)
+            }
+            .padding(Space.l)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                    .fill(Palette.surface)
+            )
+            .shadow(color: Color.black.opacity(0.04), radius: 10, x: 0, y: 4)
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, Space.s)
+    }
+
+    private var circlesCardTitle: String {
+        guard let email = auth.email else { return "Circles" }
+        let count = circlesCount
+        return count > 0 ? "Your circles (\(count))" : "Circles"
+    }
+
+    private var circlesCardSubtitle: String {
+        guard let email = auth.email else {
+            return "Sign in to share posture with friends."
+        }
+        let count = circlesCount
+        return count > 0
+            ? "Tap to see your circle" + (count > 1 ? "s" : "")
+            : "Create or join a supportive posture circle."
+    }
+
+    /// Number of circles the signed-in user belongs to.
+    private var circlesCount: Int {
+        guard let email = auth.email else { return 0 }
+        let db = Database()
+        return db.circlesForUser(email).count
+    }
+
+    // MARK: - Environment helpers
+
+    @Environment(AuthService.self) private var auth
 
     private var footer: some View {
         VStack(spacing: Space.m) {
@@ -179,7 +210,7 @@ struct HomeView: View {
                 } label: {
                     Text("Snooze 30 min")
                         .font(.system(.subheadline, design: .default, weight: .medium))
-                        .foregroundStyle(secondaryText)
+                        .foregroundStyle(Palette.mist)
                         .padding(.vertical, Space.m)
                         .padding(.horizontal, Space.xl)
                 }
@@ -197,7 +228,7 @@ struct HomeView: View {
                 Text("Snoozed until \(until.formatted(date: .omitted, time: .shortened)) · Resume")
             }
             .font(.system(.subheadline, design: .default, weight: .medium))
-            .foregroundStyle(secondaryText)
+            .foregroundStyle(Palette.mist)
             .padding(.vertical, Space.m)
             .padding(.horizontal, Space.xl)
         }

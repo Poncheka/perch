@@ -55,7 +55,7 @@ final class PostureEngine {
         self.nudge = nudge
         self.today = store.todayRecord()
         self.uprightPct = today.uprightPct
-        start()
+        // Engine is created inert — call start() when the source is running.
     }
 
     func start() {

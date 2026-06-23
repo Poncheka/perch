@@ -163,15 +163,69 @@ private struct StepScaffold<Extra: View>: View {
     }
 }
 
-// MARK: - Steps 0–1 (simple)
+// MARK: - Step 0: Animated Welcome
 
 private struct WelcomeStep: View {
+    /// 0…1 phase that drives both the figure rotation and text capitalization.
+    /// Loops gently: slouch → upright → slouch.
+    @State private var phase: Double = 0
+
     var body: some View {
-        StepScaffold(
-            icon: "figure.seated.side",
-            title: "Better posture,\non autopilot.",
-            subtitle: "Perch uses your AirPods to gently keep you upright. No timers. No fuss."
-        ) { EmptyView() }
+        VStack(spacing: Space.xl) {
+            Spacer()
+
+            // Animated figure: rotates from slouch (~-22°) to upright (0°).
+            Image(systemName: "figure.seated.side")
+                .font(.system(size: 64, weight: .thin))
+                .foregroundStyle(Palette.sage)
+                .rotationEffect(.degrees(-22 * (1 - phase)), anchor: .bottom)
+                .frame(height: 90)
+
+            VStack(spacing: Space.l) {
+                AnimatedPostureTitle(phase: phase)
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.center)
+
+                Text("Perch uses your AirPods to gently keep you upright. No timers. No fuss.")
+                    .font(.system(.body, weight: .regular))
+                    .foregroundStyle(Palette.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+                    .padding(.horizontal, Space.l)
+            }
+
+            Spacer()
+            Spacer()
+        }
+        .padding(.horizontal, Space.xl)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) {
+                phase = 1
+            }
+        }
+    }
+}
+
+/// Progressively capitalizes "posture" → "POSTURE" one letter at a time,
+/// left to right, driven by `phase` (0…1). Timed to finish as the figure
+/// reaches upright.
+private struct AnimatedPostureTitle: View {
+    let phase: Double
+
+    private let target = "posture"
+
+    var body: some View {
+        let count = capitalizedCount
+        let prefix = String(target.prefix(count))
+        let suffix = String(target.suffix(target.count - count))
+
+        return Text("Better \(prefix)\(suffix),\non autopilot.")
+    }
+
+    /// How many letters of "posture" should be uppercase right now.
+    private var capitalizedCount: Int {
+        min(target.count, max(0, Int((phase * Double(target.count)).rounded(.up))))
     }
 }
 
@@ -482,25 +536,47 @@ private struct NotificationsStep: View {
 // MARK: - Step 4: Social proof / testimonials (placeholders)
 
 private struct SocialProofStep: View {
+    @State private var currentPage = 0
+    @State private var autoTimer: Timer?
+
     var body: some View {
         StepScaffold(
             icon: "heart",
             title: "People love\nliving upright.",
             subtitle: "Most people feel more aware of their posture within a few weeks of leaving Perch on."
         ) {
-            VStack(spacing: Space.l) {
-                ForEach(testimonials) { testimonial in
-                    testimonialCard(testimonial)
+            VStack(spacing: Space.m) {
+                // Paged carousel — each testimonial gets its own card.
+                TabView(selection: $currentPage) {
+                    ForEach(Array(testimonials.enumerated()), id: \.offset) { idx, t in
+                        testimonialCard(t)
+                            .tag(idx)
+                            .padding(.horizontal, Space.xl)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(height: 200)
+
+                // Custom dot indicator.
+                HStack(spacing: 8) {
+                    ForEach(0..<testimonials.count, id: \.self) { i in
+                        Capsule()
+                            .fill(i == currentPage ? Palette.sage : Palette.hairline)
+                            .frame(width: i == currentPage ? 18 : 7, height: 7)
+                            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: currentPage)
+                    }
                 }
             }
             .padding(.top, Space.l)
+            .onAppear { startAutoAdvance() }
+            .onDisappear { autoTimer?.invalidate() }
         }
     }
 
     private func testimonialCard(_ t: Testimonial) -> some View {
         VStack(alignment: .leading, spacing: Space.s) {
-            // 5-star row
-            HStack(spacing: 2) {
+            // 5-star row — soft amber stars, not loud.
+            HStack(spacing: 3) {
                 ForEach(0..<5, id: \.self) { _ in
                     Image(systemName: "star.fill")
                         .font(.system(size: 12))
@@ -525,6 +601,15 @@ private struct SocialProofStep: View {
                 .fill(Palette.surface)
         )
         .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
+    }
+
+    /// Gently auto-advance through testimonials every 5 seconds.
+    private func startAutoAdvance() {
+        autoTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
+            Task { @MainActor in
+                withAnimation { currentPage = (currentPage + 1) % testimonials.count }
+            }
+        }
     }
 }
 
