@@ -94,18 +94,9 @@ final class PostureSource: NSObject {
 
     override init() {
         super.init()
-        configureAudioSession()
         motionManager.delegate = self
         updateAudioRoute()
         start()
-    }
-
-    /// Configure AVAudioSession minimally for route-name queries.
-    /// Uses `.ambient` so it never interrupts other audio.
-    private func configureAudioSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.ambient, mode: .default)
-        try? session.setActive(true)
     }
 
     // MARK: - Lifecycle
@@ -224,7 +215,16 @@ final class PostureSource: NSObject {
 
     // MARK: - Audio route (cosmetic)
 
+    /// Lazily configure AVAudioSession for route-name queries.
+    /// `.ambient` category — never interrupts other audio, no setActive needed.
+    private func ensureAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        guard session.category != .ambient else { return }
+        try? session.setCategory(.ambient, mode: .default)
+    }
+
     private func updateAudioRoute() {
+        ensureAudioSession()
         let session = AVAudioSession.sharedInstance()
         for output in session.currentRoute.outputs {
             if output.portType == .bluetoothA2DP
