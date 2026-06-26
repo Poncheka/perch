@@ -2,14 +2,16 @@
 //  AccountSignInView.swift
 //  Perch
 //
-//  Sign in with Apple or Google via Supabase Auth. After the first sign-in,
-//  lets the user set or confirm a display_name — the name their circle-mates
-//  see. All posture tracking remains fully anonymous / local until the user
+//  Sign in with Apple or Google via Supabase Auth — both using the native
+//  ID-token flow (signInWithIdToken). After the first sign-in, lets the user
+//  set or confirm a display_name — the name their circle-mates see.
+//  All posture tracking remains fully anonymous / local until the user
 //  signs in for Circles.
 //
 
 import SwiftUI
 import AuthenticationServices
+import GoogleSignIn
 
 struct AccountSignInView: View {
     @Environment(\.dismiss) private var dismiss
@@ -173,8 +175,19 @@ struct AccountSignInView: View {
             working = true
             authMethod = .google
             error = nil
+
+            // Find the presenting view controller for the Google Sign In SDK.
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let rootVC = windowScene.windows.first?.rootViewController else {
+                error = "Unable to present sign-in."
+                working = false
+                return
+            }
+            // Present from the topmost view controller so the sheet appears correctly.
+            let topVC = topMostViewController(from: rootVC)
+
             do {
-                try await auth.signInWithGoogle()
+                try await auth.signInWithGoogle(presenting: topVC)
                 try? await auth.ensureProfile()
                 await store.loadFromSupabase()
 
@@ -207,7 +220,7 @@ struct AccountSignInView: View {
                 authMethod = .apple
                 error = nil
 
-                // Exchange the Apple ID token with Supabase (no redundant ASAuthorizationController).
+                // Exchange the Apple ID token with Supabase via signInWithIdToken.
                 try await auth.signInWithAppleToken(idToken)
 
                 // Ensure profile exists, then load Supabase data.
@@ -250,6 +263,15 @@ struct AccountSignInView: View {
 
     private func finishSignIn() {
         dismiss()
+    }
+
+    /// Walks the view controller hierarchy to find the topmost presented VC.
+    private func topMostViewController(from root: UIViewController) -> UIViewController {
+        var current = root
+        while let presented = current.presentedViewController {
+            current = presented
+        }
+        return current
     }
 
     // MARK: - Types

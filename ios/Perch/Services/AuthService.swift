@@ -2,14 +2,17 @@
 //  AuthService.swift
 //  Perch
 //
-//  Supabase Auth service with native Apple Sign In. Observes auth state changes
-//  and surfaces a reactive isSignedIn flag. Anonymous posture tracking works
-//  without sign-in; Apple Sign In is required only for Circles.
+//  Supabase Auth service with native Apple Sign In and Google Sign In.
+//  Both providers exchange the platform identity token with Supabase via
+//  signInWithIdToken — no web redirects. Observes auth state changes and
+//  surfaces a reactive isSignedIn flag. Anonymous posture tracking works
+//  without sign-in; sign-in is required only for Circles.
 //
 
 import Foundation
 import Supabase
 import AuthenticationServices
+import GoogleSignIn
 import ObjectiveC
 
 @Observable
@@ -63,17 +66,31 @@ final class AuthService {
         }
     }
 
-    // MARK: - Google Sign In
+    // MARK: - Google Sign In (native, via GoogleSignIn SDK → signInWithIdToken)
 
-    /// Launches the Google OAuth flow via ASWebAuthenticationSession.
-    /// The Supabase SDK handles the browser redirect automatically;
-    /// on completion the auth state observer picks up the new session.
-    func signInWithGoogle() async throws {
+    /// Launches the native Google Sign In flow. The GoogleSignIn SDK presents
+    /// its own sign-in UI (using the Google app if installed, or an in-app
+    /// browser). Once complete, the ID token is exchanged with Supabase via
+    /// signInWithIdToken — no web redirect to Supabase's OAuth endpoint.
+    func signInWithGoogle(presenting viewController: UIViewController) async throws {
         authError = nil
+
+        let result: GIDSignInResult
         do {
-            _ = try await supabase.client.auth.signInWithOAuth(
-                provider: .google,
-                redirectTo: URL(string: "https://jzbgoibuljubumhzzzis.supabase.co/auth/v1/callback")!
+            result = try await GIDSignIn.sharedInstance.signIn(withPresenting: viewController)
+        } catch {
+            authError = error.localizedDescription
+            throw error
+        }
+
+        guard let idToken = result.user.idToken?.tokenString else {
+            authError = "Google Sign In failed — no ID token received."
+            throw AuthError.googleSignInFailed
+        }
+
+        do {
+            _ = try await supabase.client.auth.signInWithIdToken(
+                credentials: .init(provider: .google, idToken: idToken)
             )
         } catch {
             authError = error.localizedDescription
@@ -97,9 +114,9 @@ final class AuthService {
         }
     }
 
-    /// Launches the native Sign in with Apple flow via ASAuthorizationController.
-    /// Returns the user's full name on first sign-in, or nil on subsequent sign-ins.
-    /// Prefer using `SignInWithAppleButton` + `signInWithAppleToken(_:)` in views;
+    /// Programmatic Apple Sign In via ASAuthorizationController. Returns the
+    /// user's full name on first sign-in, or nil on subsequent sign-ins.
+    /// Prefer using SignInWithAppleButton + signInWithAppleToken(_:) in views;
     /// this method exists for programmatic use where a SwiftUI button isn't suitable.
     func signInWithApple() async throws -> String? {
         authError = nil
@@ -121,9 +138,6 @@ final class AuthService {
             ].compactMap { $0 }.filter { !$0.isEmpty }
             let name = parts.joined(separator: " ")
             if !name.isEmpty {
-                try? await supabase.client.auth.update(
-                    user: UserAttributes(data: ["full_name": .string(name)])
-                )
                 return name
             }
         }
@@ -152,6 +166,8 @@ final class AuthService {
 
     func signOut() async throws {
         authError = nil
+        // Also sign out of Google so the next sign-in shows the account picker.
+        GIDSignIn.sharedInstance.signOut()
         do {
             try await supabase.client.auth.signOut()
         } catch {
@@ -162,17 +178,29 @@ final class AuthService {
 
     // MARK: - Profile sync
 
-    /// Ensure a profile row exists for the current user. The DB trigger
-    /// `handle_new_user` creates one on signup, but we call this as a safety net.
+    /// Ensure a profile row exists for the current user. First checks if the
+    /// row already exists; only inserts if missing. This way we never clobber
+    /// an existing display_name or settings. The DB trigger handle_new_user
+    /// also creates the row on signup; this is a safety net.
     func ensureProfile() async throws {
         guard let uid = userId else { return }
+        // Check if a profile already exists for this user.
+        let existing: [Profile] = (try? await supabase.client
+            .from("profiles")
+            .select()
+            .eq("id", value: uid)
+            .execute()
+            .value) ?? []
+        if !existing.isEmpty { return }
+        // Insert a new row only. If there's a race, the duplicate-key error
+        // is harmless (the row already exists, which is what we want).
         do {
             try await supabase.client
                 .from("profiles")
-                .upsert(ProfileUpsert(id: uid, email: email))
+                .insert(ProfileNewRow(id: uid, email: email))
                 .execute()
         } catch {
-            print("Profile upsert skipped (may already exist): \(error)")
+            print("Profile insert skipped (likely already exists): \(error)")
         }
     }
 }
@@ -183,6 +211,7 @@ nonisolated enum AuthError: LocalizedError {
     case invalidEmail
     case weakPassword
     case appleSignInFailed
+    case googleSignInFailed
     case notSignedIn
 
     var errorDescription: String? {
@@ -190,6 +219,7 @@ nonisolated enum AuthError: LocalizedError {
         case .invalidEmail: return "Please enter a valid email address."
         case .weakPassword: return "Password must be at least 6 characters."
         case .appleSignInFailed: return "Sign in with Apple failed. Please try again."
+        case .googleSignInFailed: return "Sign in with Google failed. Please try again."
         case .notSignedIn: return "You need to sign in first."
         }
     }
@@ -227,7 +257,10 @@ private final class AppleSignInDelegate: NSObject, ASAuthorizationControllerDele
 
 // MARK: - Encodable helpers for Supabase
 
-nonisolated struct ProfileUpsert: Encodable, Sendable {
+/// Minimal profile insert for first-time row creation. Only sets id + email;
+/// all other columns use their DB defaults. Never used as an upsert, so it
+/// won't overwrite an existing display_name.
+nonisolated struct ProfileNewRow: Encodable, Sendable {
     let id: String
     let email: String?
 }

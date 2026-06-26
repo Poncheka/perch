@@ -3,11 +3,12 @@
 //  Perch
 //
 //  App entry. Builds the dependency graph once and injects every service into
-//  the environment. PostureSource is the single sensor signal; PostureEngine is
-//  the state machine that reads it.
+//  the environment. Configures Google Sign In on launch. PostureSource is the
+//  single sensor signal; PostureEngine is the state machine that reads it.
 //
 
 import SwiftUI
+import GoogleSignIn
 
 @main
 struct PerchApp: App {
@@ -39,6 +40,14 @@ struct PerchApp: App {
         _db = State(initialValue: db)
 
         source.manualOverride = false
+
+        // Configure Google Sign In with the iOS client ID from Google Cloud Console.
+        // Replace the placeholder below with your actual iOS client ID, which looks
+        // like "XXXX-XXXX.apps.googleusercontent.com".
+        let googleClientID = "REPLACE_WITH_YOUR_GOOGLE_IOS_CLIENT_ID"
+        if googleClientID != "REPLACE_WITH_YOUR_GOOGLE_IOS_CLIENT_ID" {
+            GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleClientID)
+        }
     }
 
     var body: some Scene {
