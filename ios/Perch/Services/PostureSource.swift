@@ -11,6 +11,13 @@
 //  Defaults: Real on device, Simulated in the iOS Simulator. All screens and the
 //  PostureEngine read ONLY through this type — never touch AirPods APIs directly.
 //
+//  AUDIO SESSION KEEP-ALIVE:
+//  Uses a silent .playback + .mixWithOthers audio loop so iOS keeps the app
+//  alive in the background for continuous posture monitoring. The silent player
+//  coexists with Spotify, podcasts, etc. and never interrupts or ducks other
+//  playback. Observes interruption, route-change, and media-services-reset
+//  notifications to pause/resume monitoring gracefully around calls and Siri.
+//
 
 import SwiftUI
 import Combine
@@ -82,6 +89,15 @@ final class PostureSource: NSObject {
     private var baseline: Double = 0     ///< Pitch captured at calibration time.
     private var _sensorAirpodsConnected: Bool = false
 
+    // MARK: - Audio session keep-alive
+
+    /// A silent looping player that keeps the app alive in the background.
+    /// Configured as .playback + .mixWithOthers so it coexists with other audio.
+    private var keepAlivePlayer: AVAudioPlayer?
+    /// Tracks whether monitoring was active before an audio interruption began,
+    /// so we can decide whether to restart CMHeadphoneMotionManager on .ended.
+    private var wasMonitoringBeforeInterruption = false
+
     // MARK: - Simulated internals
 
     private var simRawTilt: Double = 6
@@ -98,7 +114,13 @@ final class PostureSource: NSObject {
     override init() {
         super.init()
         motionManager.delegate = self
+        configureAudioSession()
+        observeAudioNotifications()
         updateAudioRoute()
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Lifecycle
@@ -120,6 +142,7 @@ final class PostureSource: NSObject {
         simTimer?.invalidate()
         simTimer = nil
         motionManager.stopDeviceMotionUpdates()
+        stopKeepAlive()
     }
 
     /// Switch between real and simulated at runtime (used by Dev Panel).
@@ -162,6 +185,7 @@ final class PostureSource: NSObject {
         }
         _sensorAirpodsConnected = true
         updateAudioRoute()
+        startKeepAlive()
 
         motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
             guard let self, let motion = motion else { return }
@@ -215,18 +239,94 @@ final class PostureSource: NSObject {
         neckAngle = simRawTilt - simBaseline
     }
 
-    // MARK: - Audio route (cosmetic)
+    // MARK: - Audio session configuration
 
-    /// Lazily configure AVAudioSession for route-name queries.
-    /// `.ambient` category — never interrupts other audio, no setActive needed.
-    private func ensureAudioSession() {
+    /// Configures the shared AVAudioSession for background keep-alive.
+    /// .playback + .mixWithOthers ensures the silent loop coexists with Spotify,
+    /// podcasts, and phone calls without interrupting or ducking them.
+    private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
-        guard session.category != .ambient else { return }
-        try? session.setCategory(.ambient, mode: .default)
+        guard session.category != .playback
+                || session.categoryOptions.rawValue != AVAudioSession.CategoryOptions.mixWithOthers.rawValue else {
+            return
+        }
+        try? session.setCategory(.playback, options: .mixWithOthers)
     }
 
+    // MARK: - Keep-alive silent audio
+
+    /// Generates a minimal silent PCM WAV file in memory and starts an
+    /// infinite-looping AVAudioPlayer. This keeps iOS from suspending the app
+    /// while posture monitoring runs in the background.
+    private func startKeepAlive() {
+        guard keepAlivePlayer == nil else { return }
+
+        let session = AVAudioSession.sharedInstance()
+        try? session.setActive(true)
+
+        guard let player = makeSilentLoopPlayer() else { return }
+        player.numberOfLoops = -1
+        player.volume = 0
+        player.play()
+        keepAlivePlayer = player
+    }
+
+    /// Stops the silent keep-alive player and deactivates the audio session so
+    /// other apps can use it freely.
+    private func stopKeepAlive() {
+        keepAlivePlayer?.stop()
+        keepAlivePlayer = nil
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+    }
+
+    /// Builds an AVAudioPlayer from a short, silent WAV payload so we never
+    /// need a bundled audio asset.
+    private func makeSilentLoopPlayer() -> AVAudioPlayer? {
+        let wav = makeSilentWAV()
+        return try? AVAudioPlayer(data: wav)
+    }
+
+    /// Produces a valid 16-bit mono PCM WAV with 0.1 s of silence.
+    private func makeSilentWAV() -> Data {
+        let sampleRate: UInt32 = 8000
+        let numSamples: UInt32 = 800          // 0.1 seconds
+        let bitsPerSample: UInt16 = 16
+        let numChannels: UInt16 = 1
+        let byteRate = sampleRate * UInt32(numChannels) * UInt32(bitsPerSample / 8)
+        let blockAlign = numChannels * (bitsPerSample / 8)
+        let dataSize = numSamples * UInt32(blockAlign)
+
+        func appendLE<T: FixedWidthInteger>(_ value: T, to data: inout Data) {
+            var v = value.littleEndian
+            data.append(Data(bytes: &v, count: MemoryLayout<T>.size))
+        }
+
+        var data = Data()
+        // RIFF header
+        data.append("RIFF".data(using: .ascii)!)
+        appendLE(UInt32(36 + dataSize), to: &data)
+        data.append("WAVE".data(using: .ascii)!)
+        // fmt sub-chunk
+        data.append("fmt ".data(using: .ascii)!)
+        appendLE(UInt32(16), to: &data)
+        appendLE(UInt16(1), to: &data)       // PCM
+        appendLE(numChannels, to: &data)
+        appendLE(sampleRate, to: &data)
+        appendLE(byteRate, to: &data)
+        appendLE(blockAlign, to: &data)
+        appendLE(bitsPerSample, to: &data)
+        // data sub-chunk
+        data.append("data".data(using: .ascii)!)
+        appendLE(dataSize, to: &data)
+        // Silent samples
+        data.append(Data(count: Int(dataSize)))
+
+        return data
+    }
+
+    // MARK: - Audio route (cosmetic)
+
     private func updateAudioRoute() {
-        ensureAudioSession()
         let session = AVAudioSession.sharedInstance()
         for output in session.currentRoute.outputs {
             if output.portType == .bluetoothA2DP
@@ -239,6 +339,115 @@ final class PostureSource: NSObject {
             }
         }
         audioRouteName = nil
+    }
+
+    // MARK: - Notification observers
+
+    private func observeAudioNotifications() {
+        let center = NotificationCenter.default
+
+        center.addObserver(
+            self,
+            selector: #selector(handleInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+
+        center.addObserver(
+            self,
+            selector: #selector(handleRouteChange),
+            name: AVAudioSession.routeChangeNotification,
+            object: nil
+        )
+
+        center.addObserver(
+            self,
+            selector: #selector(handleMediaServicesReset),
+            name: AVAudioSession.mediaServicesWereResetNotification,
+            object: nil
+        )
+    }
+
+    // MARK: - Interruption handler
+
+    /// Pauses monitoring on interruption begin (call, Siri, alarm) and resumes
+    /// automatically when the interruption ends with `.shouldResume`.
+    @objc private func handleInterruption(_ notification: Notification) {
+        guard let typeValue = notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else {
+            return
+        }
+
+        switch type {
+        case .began:
+            // A call, Siri, or alarm is taking over audio. Pause everything.
+            wasMonitoringBeforeInterruption = _sensorAirpodsConnected
+            isOnCall = true
+            stop()
+            _sensorAirpodsConnected = false
+
+        case .ended:
+            isOnCall = false
+
+            guard let optionsValue = notification.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt else {
+                return
+            }
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+
+            if options.contains(.shouldResume) {
+                // The interruption (e.g. phone call) ended and we should resume.
+                // Reactivate the audio session and restart monitoring if we were
+                // monitoring before.
+                configureAudioSession()
+                try? AVAudioSession.sharedInstance().setActive(true)
+                if wasMonitoringBeforeInterruption {
+                    start()
+                }
+            }
+
+        @unknown default:
+            break
+        }
+    }
+
+    // MARK: - Route-change handler
+
+    /// Updates the cosmetic route name when audio hardware changes.
+    /// Handles AirPods removal gracefully — the CMHeadphoneMotionManagerDelegate
+    /// disconnect callback will also fire, but this provides an extra safety net.
+    @objc private func handleRouteChange(_ notification: Notification) {
+        updateAudioRoute()
+
+        guard let reasonValue = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: reasonValue) else {
+            return
+        }
+
+        switch reason {
+        case .oldDeviceUnavailable:
+            // Audio device (e.g. AirPods) was removed. The delegate disconnect
+            // callback handles the sensor side; here we just refresh the label.
+            updateAudioRoute()
+
+        case .newDeviceAvailable:
+            // New device appeared — could be AirPods being put in.
+            updateAudioRoute()
+
+        default:
+            break
+        }
+    }
+
+    // MARK: - Media-services-reset handler
+
+    /// Rare: the media server died. Reconfigure the audio session so we can
+    /// restart the keep-alive player when monitoring resumes.
+    @objc private func handleMediaServicesReset(_ notification: Notification) {
+        configureAudioSession()
+        // If we were monitoring, restart the keep-alive player.
+        if _sensorAirpodsConnected {
+            startKeepAlive()
+        }
     }
 }
 
