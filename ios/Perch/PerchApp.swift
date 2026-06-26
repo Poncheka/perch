@@ -44,10 +44,8 @@ struct PerchApp: App {
         // Configure Google Sign In with the iOS client ID from Google Cloud Console.
         // Replace the placeholder below with your actual iOS client ID, which looks
         // like "XXXX-XXXX.apps.googleusercontent.com".
-        let googleClientID = "REPLACE_WITH_YOUR_GOOGLE_IOS_CLIENT_ID"
-        if googleClientID != "REPLACE_WITH_YOUR_GOOGLE_IOS_CLIENT_ID" {
-            GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleClientID)
-        }
+        let googleClientID = "523223745831-folpkj43uqhs77d854m92l2s1dfq3qpi.apps.googleusercontent.com"
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: googleClientID)
     }
 
     var body: some Scene {
