@@ -4,6 +4,7 @@
 //
 //  Lists circle members with their posture stats: today's upright %, current
 //  streak, and 7-day average. Calm and supportive — no leaderboard, no red.
+//  The circle owner can delete the circle; other members can leave.
 //
 
 import SwiftUI
@@ -13,10 +14,20 @@ struct CircleDetailView: View {
 
     @Environment(PerchStore.self) private var store
     @Environment(PostureEngine.self) private var engine
+    @Environment(AuthService.self) private var auth
+    @Environment(\.dismiss) private var dismiss
 
     @State private var summaries: [CircleMemberSummary] = []
+    @State private var showDeleteConfirm = false
 
     private let db = Database()
+
+    private var isOwner: Bool { circle.ownerId == (auth.email ?? "") }
+
+    /// The current user's member record in this circle, if any.
+    private var myMembership: CircleMember? {
+        db.loadMembers(for: circle.id).first { $0.userId == (auth.email ?? "") }
+    }
 
     var body: some View {
         ScrollView {
@@ -56,12 +67,55 @@ struct CircleDetailView: View {
                         memberCard(summary)
                     }
                 }
+
+                // Delete / Leave button
+                VStack(spacing: Space.s) {
+                    if isOwner {
+                        Button(role: .destructive) {
+                            showDeleteConfirm = true
+                        } label: {
+                            Label("Delete this circle", systemImage: "trash")
+                                .font(.system(.subheadline, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Palette.amber)
+                    } else if myMembership != nil {
+                        Button(role: .destructive) {
+                            leaveCircle()
+                        } label: {
+                            Label("Leave this circle", systemImage: "rectangle.portrait.and.arrow.right")
+                                .font(.system(.subheadline, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Palette.amber)
+                    }
+                }
+                .padding(.top, Space.l)
             }
             .padding(.horizontal, Space.xl)
             .padding(.bottom, Space.xxl)
         }
         .background(PerchBackground())
         .onAppear { loadSummaries() }
+        .alert("Delete \(circle.name)?", isPresented: $showDeleteConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) { deleteCircle() }
+        } message: {
+            Text("All members will be removed and the circle will be permanently deleted.")
+        }
+    }
+
+    // MARK: - Delete / Leave
+
+    private func deleteCircle() {
+        db.deleteCircle(circle.id)
+        dismiss()
+    }
+
+    private func leaveCircle() {
+        guard let membership = myMembership else { return }
+        db.removeMember(membership.id)
+        dismiss()
     }
 
     // MARK: - Member card
@@ -126,10 +180,7 @@ struct CircleDetailView: View {
     }
 
     private func buildSummary(for member: CircleMember) -> CircleMemberSummary {
-        // Use local posture data if the member is the current user;
-        // otherwise generate placeholder data. In Supabase, this would
-        // come from posture_days joined through circle_members RLS.
-        if member.userId == (store.profile.email ?? "") {
+        if member.userId == (auth.email ?? "") {
             return CircleMemberSummary(
                 id: member.id,
                 name: "You",

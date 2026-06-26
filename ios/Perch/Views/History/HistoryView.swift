@@ -51,12 +51,12 @@ struct HistoryView: View {
 
     private var hero: some View {
         VStack(spacing: Space.s) {
-            Eyebrow(text: "Upright Today")
+            Eyebrow(text: "Upright score")
             Text("\(Int(engine.uprightPct.rounded()))")
                 .font(.system(size: 84, weight: .thin))
                 .foregroundStyle(Palette.ink)
                 .monospacedDigit()
-            Text("percent of monitored time")
+            Text("% of time spent upright today")
                 .font(.footnote)
                 .foregroundStyle(Palette.mist)
         }

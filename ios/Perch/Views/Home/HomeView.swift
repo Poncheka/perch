@@ -192,9 +192,11 @@ struct HomeView: View {
                 color: engine.state.ringColor,
                 isMonitoring: engine.state.isMonitoring,
                 slouchProgress: slouchProgress,
-                isWarmingUp: isWarmingUp
+                isWarmingUp: isWarmingUp,
+                isSnoozed: engine.isSnoozing,
+                onResume: { engine.cancelSnooze() }
             )
-            .overlay { ringNumberTapTarget }
+            .overlay { if !engine.isSnoozing && !isWarmingUp { ringNumberTapTarget } }
 
             statusLine
             circlesCard

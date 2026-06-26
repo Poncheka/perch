@@ -5,7 +5,8 @@
 //  The signature live status ring with a slow "breathing" pulse. Shows today's
 //  upright % as a large, light-weight numeral inside. During the "warming up"
 //  phase (<150 monitored seconds) it shows a soft dash instead of a volatile
-//  number, then fades in the real value.
+//  number, then fades in the real value. When snoozed, the number is replaced
+//  by a pause button that taps to resume.
 //
 
 import SwiftUI
@@ -18,6 +19,10 @@ struct StatusRing: View {
     let slouchProgress: Double
     /// Whether the value is still warming up (monitoredSeconds < 150).
     let isWarmingUp: Bool
+    /// When true, the big number is replaced by a pause icon that can be tapped.
+    let isSnoozed: Bool
+    /// Tap the pause icon to resume monitoring.
+    var onResume: (() -> Void)?
 
     @State private var breathe = false
 
@@ -57,12 +62,14 @@ struct StatusRing: View {
                 )
                 .scaleEffect(breathe ? 1.04 : 0.96)
 
-            // Inner numeral (or warming-up dash).
+            // Inner numeral (or warming-up dash, or snooze pause button).
             VStack(spacing: 6) {
                 if isWarmingUp {
                     Text("—")
                         .font(.system(size: 96, weight: .thin, design: .default))
                         .foregroundStyle(Palette.ink.opacity(0.5))
+                } else if isSnoozed {
+                    pauseButton
                 } else {
                     Text("\(displayValue)")
                         .font(.system(size: 96, weight: .thin, design: .default))
@@ -71,7 +78,7 @@ struct StatusRing: View {
                         .animation(.easeInOut(duration: 0.5), value: displayValue)
                         .monospacedDigit()
                 }
-                Eyebrow(text: isWarmingUp ? "Warming up" : "Upright Today")
+                Eyebrow(text: eyebrowText)
             }
         }
         .frame(width: 268, height: 268)
@@ -80,5 +87,25 @@ struct StatusRing: View {
                 breathe = true
             }
         }
+    }
+
+    private var eyebrowText: String {
+        if isWarmingUp { return "Warming up" }
+        if isSnoozed { return "Paused" }
+        return "Upright score"
+    }
+
+    // MARK: - Pause button (shown when snoozed)
+
+    private var pauseButton: some View {
+        Button {
+            UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+            onResume?()
+        } label: {
+            Image(systemName: "pause.circle.fill")
+                .font(.system(size: 72, weight: .thin))
+                .foregroundStyle(Palette.mist)
+        }
+        .buttonStyle(.plain)
     }
 }

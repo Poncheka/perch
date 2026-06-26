@@ -200,12 +200,19 @@ private struct IntroPage: View {
 private struct AnimatedHeroTitle: View {
     let phase: Double
     private let target = "posture"
+    private let upper = "POSTURE"
 
     var body: some View {
         let count = capitalizedCount
-        let prefix = String(target.prefix(count))
+        Text("Fix your \(buildWord(count))\nwith AirPods")
+    }
+
+    /// Builds the word with the first `count` letters from the uppercase version
+    /// and the remaining from the lowercase, so capital letters spread left→right.
+    private func buildWord(_ count: Int) -> String {
+        let prefix = String(upper.prefix(count))
         let suffix = String(target.suffix(target.count - count))
-        return Text("Fix your \(prefix)\(suffix)\nwith AirPods")
+        return prefix + suffix
     }
 
     private var capitalizedCount: Int {
