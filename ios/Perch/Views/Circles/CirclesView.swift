@@ -2,11 +2,14 @@
 //  CirclesView.swift
 //  Perch
 //
-//  Oura-style shared circles. Requires sign-in. Lists circles the user belongs
-//  to, and offers Create / Join actions. Supportive, not competitive.
+//  Oura-style shared circles. When not signed in, shows sign-in options
+//  directly on this page (Apple + Google) — no two-step prompt → sheet.
+//  When signed in, lists circles and offers Create / Join actions.
 //
 
 import SwiftUI
+import AuthenticationServices
+import GoogleSignIn
 
 struct CirclesView: View {
     @Environment(\.dismiss) private var dismiss
@@ -17,14 +20,19 @@ struct CirclesView: View {
     @State private var userCircles: [CircleModel] = []
     @State private var showCreate = false
     @State private var showJoin = false
-    @State private var showSignIn = false
+    @State private var showNamePrompt = false
+    @State private var displayName = ""
+    @State private var working = false
+    @State private var signInError: String?
 
     var body: some View {
         NavigationStack {
             ZStack {
                 PerchBackground()
                 if !auth.isSignedIn {
-                    signInPrompt
+                    signInPage
+                } else if showNamePrompt {
+                    namePromptPage
                 } else if userCircles.isEmpty {
                     emptyState
                 } else {
@@ -38,7 +46,6 @@ struct CirclesView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showSignIn) { AccountSignInView() }
             .sheet(isPresented: $showCreate) { CreateCircleView() }
             .sheet(isPresented: $showJoin) { JoinCircleView() }
             .task { await loadCircles() }
@@ -53,9 +60,9 @@ struct CirclesView: View {
         userCircles = await db.circlesForUser(uid)
     }
 
-    // MARK: - Sign-in prompt
+    // MARK: - Sign-in page (Apple + Google on one page)
 
-    private var signInPrompt: some View {
+    private var signInPage: some View {
         VStack(spacing: Space.xl) {
             Spacer()
             Image(systemName: "person.2")
@@ -63,7 +70,7 @@ struct CirclesView: View {
                 .foregroundStyle(Palette.sage)
             VStack(spacing: Space.s) {
                 Text("Sign in for Circles")
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Palette.ink)
                 Text("Share your posture journey with a small, supportive group. Sign in to create or join a circle.")
                     .font(.body)
@@ -71,14 +78,212 @@ struct CirclesView: View {
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
             }
-            PerchPrimaryButton(title: "Sign in") { showSignIn = true }
+
+            if let error = signInError {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.amber)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: Space.m) {
+                if working {
+                    HStack(spacing: Space.s) {
+                        ProgressView()
+                            .tint(Palette.sage)
+                        Text("Signing in…")
+                            .font(.subheadline)
+                            .foregroundStyle(Palette.mist)
+                    }
+                } else {
+                    googleButton
+                    appleButton
+                }
+            }
+
+            Text("Your posture data stays on your phone until you sign in. Only your daily score and streak are shared with circles you join.")
+                .font(.caption)
+                .foregroundStyle(Palette.mist)
+                .multilineTextAlignment(.center)
                 .padding(.top, Space.s)
+
+            Spacer()
             Spacer()
         }
         .padding(.horizontal, Space.xl)
     }
 
-    // MARK: - Empty state
+    // MARK: - Name prompt (shown after first sign-in)
+
+    private var namePromptPage: some View {
+        VStack(spacing: Space.xl) {
+            Spacer()
+            Image(systemName: "person.text.rectangle")
+                .font(.system(size: 44, weight: .thin))
+                .foregroundStyle(Palette.sage)
+            VStack(spacing: Space.s) {
+                Text("Your display name")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text("This is the name your circle-mates will see. You can change it later in Settings.")
+                    .font(.body)
+                    .foregroundStyle(Palette.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+            }
+
+            TextField("Your name", text: $displayName)
+                .textContentType(.name)
+                .padding(Space.l)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                        .fill(Palette.surface)
+                )
+
+            PerchPrimaryButton(title: "Continue") {
+                saveDisplayName()
+            }
+            .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            PerchTextButton(title: "Skip for now", color: Palette.mist) {
+                showNamePrompt = false
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, Space.xl)
+    }
+
+    // MARK: - Sign-in buttons
+
+    private var googleButton: some View {
+        Button {
+            handleGoogleSignIn()
+        } label: {
+            HStack(spacing: Space.m) {
+                Image(systemName: "g.circle.fill")
+                    .font(.title3)
+                Text("Continue with Google")
+                    .font(.system(.headline, design: .default, weight: .semibold))
+            }
+            .foregroundStyle(Palette.ink)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(
+                RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                    .fill(Palette.surface)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                            .stroke(Palette.hairline, lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var appleButton: some View {
+        SignInWithAppleButton(.signIn) { request in
+            request.requestedScopes = [.fullName, .email]
+        } onCompletion: { result in
+            handleAppleResult(result)
+        }
+        .signInWithAppleButtonStyle(.black)
+        .frame(height: 50)
+        .clipShape(.rect(cornerRadius: Radius.control))
+    }
+
+    // MARK: - Actions
+
+    private func handleGoogleSignIn() {
+        Task {
+            working = true
+            signInError = nil
+
+            guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let rootVC = windowScene.windows.first?.rootViewController else {
+                signInError = "Unable to present sign-in."
+                working = false
+                return
+            }
+            let topVC = topMostViewController(from: rootVC)
+
+            do {
+                try await auth.signInWithGoogle(presenting: topVC)
+                try? await auth.ensureProfile()
+                await store.loadFromSupabase()
+
+                if store.profile.displayName?.isEmpty == false {
+                    // Already has a name — done.
+                } else {
+                    await MainActor.run { showNamePrompt = true }
+                }
+            } catch {
+                await MainActor.run {
+                    signInError = error.localizedDescription
+                }
+            }
+            await MainActor.run { working = false }
+        }
+    }
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) {
+        Task {
+            do {
+                let authorization = try result.get()
+                guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                      let idTokenData = credential.identityToken,
+                      let idToken = String(data: idTokenData, encoding: .utf8) else {
+                    signInError = "Apple Sign In failed — no identity token received."
+                    return
+                }
+
+                working = true
+                signInError = nil
+
+                try await auth.signInWithAppleToken(idToken)
+                try? await auth.ensureProfile()
+                await store.loadFromSupabase()
+
+                if store.profile.displayName?.isEmpty == false {
+                    // Already has a name — done.
+                } else {
+                    let parts = [
+                        credential.fullName?.givenName,
+                        credential.fullName?.familyName
+                    ].compactMap { $0 }.filter { !$0.isEmpty }
+                    let appleName = parts.joined(separator: " ")
+
+                    await MainActor.run {
+                        displayName = appleName.isEmpty ? "" : appleName
+                        showNamePrompt = true
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    signInError = error.localizedDescription
+                }
+            }
+            await MainActor.run { working = false }
+        }
+    }
+
+    private func saveDisplayName() {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        store.profile.displayName = trimmed
+        store.saveProfile()
+        showNamePrompt = false
+    }
+
+    private func topMostViewController(from root: UIViewController) -> UIViewController {
+        var current = root
+        while let presented = current.presentedViewController {
+            current = presented
+        }
+        return current
+    }
+
+    // MARK: - Empty state (signed in, no circles)
 
     private var emptyState: some View {
         VStack(spacing: Space.xl) {
@@ -106,7 +311,7 @@ struct CirclesView: View {
         .padding(.horizontal, Space.xl)
     }
 
-    // MARK: - Circle list
+    // MARK: - Circle list (signed in, has circles)
 
     private var circleList: some View {
         ScrollView {

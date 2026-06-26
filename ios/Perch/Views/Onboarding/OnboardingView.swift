@@ -2,30 +2,25 @@
 //  OnboardingView.swift
 //  Perch
 //
-//  Four-page onboarding flow, then paywall, then first-run calibration.
-//
-//  Pages:
+//  Three-page onboarding flow, each with its own dedicated screen:
 //    0  Intro — animated figure + "Fix your posture with AirPods"
 //    1  Connect your AirPods — detect via audio route
-//    2  Allow Motion & Fitness — real CMHeadphoneMotionManager permission + check
-//    3  Allow notifications
+//    2  Allow notifications
 //
-//  No system prompts fire until the user reaches the relevant page. On finish,
-//  mark onboarding complete → RootView presents the paywall.
+//  Zero system prompts fire until the user reaches the relevant page.
+//  Motion & Fitness permission now lives on its own dedicated screen
+//  AFTER onboarding completes, BEFORE the paywall.
 //
 
 import SwiftUI
-import CoreMotion
-import AVFoundation
 import UserNotifications
 
 struct OnboardingView: View {
     @Environment(PerchStore.self) private var store
-    @Environment(PostureSource.self) private var source
     @Environment(NudgeService.self) private var nudge
 
     @State private var step = 0
-    private let lastStep = 3
+    private let lastStep = 2
 
     var body: some View {
         ZStack {
@@ -66,18 +61,14 @@ struct OnboardingView: View {
         switch step {
         case 0: IntroPage(onNext: advance)
         case 1: ConnectAirPodsPage(onNext: advance)
-        case 2: MotionPage(onNext: advance)
-        case 3: NotificationsPage(onFinish: finishOnboarding)
+        case 2: NotificationsPage(onFinish: finishOnboarding)
         default: EmptyView()
         }
     }
 
     // MARK: - Footer
 
-    @ViewBuilder
     private var footer: some View {
-        // Each page has its own buttons, but for pages that don't
-        // (pages 2 and 3 handle their own actions), show nothing extra.
         Color.clear.frame(height: 20)
     }
 
@@ -113,40 +104,6 @@ private struct DotsIndicator: View {
                     .animation(.spring(response: 0.35, dampingFraction: 0.8), value: index)
             }
         }
-    }
-}
-
-// MARK: - Shared step scaffold
-
-private struct StepScaffold<Content: View>: View {
-    let icon: String
-    let title: String
-    let subtitle: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        VStack(spacing: Space.xl) {
-            Spacer()
-            Image(systemName: icon)
-                .font(.system(size: 46, weight: .thin))
-                .foregroundStyle(Palette.sage)
-                .frame(height: 64)
-            VStack(spacing: Space.l) {
-                Text(title)
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(Palette.ink)
-                    .multilineTextAlignment(.center)
-                Text(subtitle)
-                    .font(.system(.body, weight: .regular))
-                    .foregroundStyle(Palette.inkSoft)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-            }
-            content
-            Spacer()
-            Spacer()
-        }
-        .padding(.horizontal, Space.xl)
     }
 }
 
@@ -207,8 +164,6 @@ private struct AnimatedHeroTitle: View {
         Text("Fix your \(buildWord(count))\nwith AirPods")
     }
 
-    /// Builds the word with the first `count` letters from the uppercase version
-    /// and the remaining from the lowercase, so capital letters spread left→right.
     private func buildWord(_ count: Int) -> String {
         let prefix = String(upper.prefix(count))
         let suffix = String(target.suffix(target.count - count))
@@ -301,188 +256,7 @@ private struct ConnectAirPodsPage: View {
     }
 }
 
-// MARK: - Page 2: Allow Motion & Fitness + compatibility
-
-private struct MotionPage: View {
-    let onNext: () -> Void
-    @Environment(PostureSource.self) private var source
-
-    enum Phase: Equatable {
-        case priming
-        case checking
-        case supported
-        case unsupported
-        case denied
-    }
-
-    @State private var phase: Phase = .priming
-    private let checkTimeout: Double = 2.0
-
-    var body: some View {
-        VStack(spacing: Space.xl) {
-            Spacer()
-
-            Image(systemName: iconName)
-                .font(.system(size: 46, weight: .thin))
-                .foregroundStyle(iconColor)
-                .frame(height: 64)
-
-            VStack(spacing: Space.l) {
-                Text(titleText)
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(Palette.ink)
-                    .multilineTextAlignment(.center)
-
-                Text(subtitleText)
-                    .font(.system(.body, weight: .regular))
-                    .foregroundStyle(Palette.inkSoft)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-            }
-
-            Spacer()
-
-            VStack(spacing: Space.m) {
-                switch phase {
-                case .priming:
-                    PerchPrimaryButton(title: "Allow access") { startCheck() }
-                case .checking:
-                    ProgressView()
-                        .tint(Palette.sage)
-                        .padding(.top, Space.s)
-                case .supported:
-                    PerchPrimaryButton(title: "Continue") { onNext() }
-                case .unsupported:
-                    VStack(spacing: Space.m) {
-                        PerchTextButton(title: "Try other AirPods", color: Palette.mist) {
-                            // Go back to page 1 — parent handles navigation.
-                            // For now, proceed anyway so user isn't hard-blocked.
-                        }
-                        PerchTextButton(title: "Continue anyway", color: Palette.sage) {
-                            onNext()
-                        }
-                    }
-                case .denied:
-                    VStack(spacing: Space.m) {
-                        PerchPrimaryButton(title: "Open Settings") {
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                UIApplication.shared.open(url)
-                            }
-                        }
-                        PerchTextButton(title: "Continue anyway", color: Palette.mist) {
-                            onNext()
-                        }
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, Space.xl)
-    }
-
-    // MARK: - Derived properties
-
-    private var iconName: String {
-        switch phase {
-        case .priming: return "figure.walk.motion"
-        case .checking: return "airpods"
-        case .supported: return "checkmark.seal"
-        case .unsupported, .denied: return "exclamationmark.triangle"
-        }
-    }
-
-    private var iconColor: Color {
-        switch phase {
-        case .supported: return Palette.sage
-        case .unsupported, .denied: return Palette.amber
-        default: return Palette.sage
-        }
-    }
-
-    private var titleText: String {
-        switch phase {
-        case .priming: return "Allow Motion\n& Fitness"
-        case .checking: return "Checking your\nAirPods…"
-        case .supported: return "You're all set."
-        case .unsupported: return "Not supported."
-        case .denied: return "Motion access\nis needed."
-        }
-    }
-
-    private var subtitleText: String {
-        switch phase {
-        case .priming:
-            return "Perch reads the motion sensor in your AirPods to know when you're slouching — even in the background. Your motion data never leaves your phone."
-        case .checking:
-            return "One moment while we make sure your AirPods can sense motion."
-        case .supported:
-            return "Your AirPods can sense motion. Perch is ready to keep you upright."
-        case .unsupported:
-            return "These AirPods don't support motion sensing. Perch needs AirPods (3rd gen), AirPods Pro, AirPods Max, or Beats Fit Pro."
-        case .denied:
-            return "Perch uses Motion & Fitness to sense your posture. Enable it in Settings, or try different AirPods that support motion sensing."
-        }
-    }
-
-    // MARK: - Real check logic
-
-    private func startCheck() {
-        phase = .checking
-        Task { await runRealCheck() }
-    }
-
-    /// Start CMHeadphoneMotionManager — this triggers the OS Motion & Fitness
-    /// permission prompt AND verifies motion capability in one step.
-    private func runRealCheck() async {
-        let manager = CMHeadphoneMotionManager()
-
-        guard manager.isDeviceMotionAvailable else {
-            // No motion hardware at all — not a denied-permission case.
-            withAnimation { phase = .unsupported }
-            return
-        }
-
-        var sampleArrived = false
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            manager.startDeviceMotionUpdates(to: .main) { motion, _ in
-                guard !sampleArrived, motion != nil else { return }
-                sampleArrived = true
-                manager.stopDeviceMotionUpdates()
-                continuation.resume()
-            }
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + checkTimeout) {
-                guard !sampleArrived else { return }
-                manager.stopDeviceMotionUpdates()
-                continuation.resume()
-            }
-        }
-
-        // After the check, determine if permission was denied.
-        // If CMHeadphoneMotionManager.authorizationStatus() is available (iOS 18+),
-        // we can check. Otherwise, isDeviceMotionAvailable + no sample = likely denied.
-        let isDenied: Bool
-        if #available(iOS 18.0, *) {
-            isDenied = CMHeadphoneMotionManager.authorizationStatus() == .denied
-        } else {
-            // Pre-iOS 18: if device says motion IS available but no sample arrived,
-            // the user probably denied the prompt. (isDeviceMotionAvailable still
-            // returns true when permission is denied, annoyingly.)
-            isDenied = !sampleArrived
-        }
-
-        withAnimation {
-            if sampleArrived {
-                phase = .supported
-            } else if isDenied {
-                phase = .denied
-            } else {
-                phase = .unsupported
-            }
-        }
-    }
-}
-
-// MARK: - Page 3: Allow notifications
+// MARK: - Page 2: Allow notifications
 
 private struct NotificationsPage: View {
     let onFinish: () -> Void
@@ -534,7 +308,6 @@ private struct NotificationsPage: View {
     private func requestPermission() async {
         phase = .requesting
         await nudge.requestNotificationPermission()
-        // Proceed regardless of the user's choice.
         onFinish()
     }
 }

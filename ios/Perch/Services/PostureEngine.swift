@@ -108,9 +108,14 @@ final class PostureEngine {
         }
 
         // Count monitored time + upright time for the daily roll-up.
+        // Exclude time when the user is moving (walking/running) — head angle
+        // is too noisy during movement to be fairly counted.
         let isUpright = angle <= profile.slouchThreshold
-        today.monitoredSeconds += sampleInterval
-        if isUpright { today.uprightSeconds += sampleInterval }
+        let moving = source.isMoving
+        if !moving {
+            today.monitoredSeconds += sampleInterval
+            if isUpright { today.uprightSeconds += sampleInterval }
+        }
         recomputeUpright()
 
         // Are we silently muted?

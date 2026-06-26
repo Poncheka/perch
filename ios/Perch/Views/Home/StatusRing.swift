@@ -92,7 +92,7 @@ struct StatusRing: View {
     private var eyebrowText: String {
         if isWarmingUp { return "Warming up" }
         if isSnoozed { return "Paused" }
-        return "Upright score"
+        return "Upright Today"
     }
 
     // MARK: - Pause button (shown when snoozed)

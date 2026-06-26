@@ -2,13 +2,9 @@
 //  HistoryView.swift
 //  Perch
 //
-//  Oura-style, sparse history: today's upright % as a hero, a minimal 7-day and
-//  30-day trend, and one encouraging plain-language insight line.
-//
-//  New additions (all frame around the Upright % metric, not health claims):
-//    - Streak card: consecutive days with any monitoring.
-//    - Verdict card: buckets the 7-day average into Strong / Getting there / Room to grow.
-//    - Progress projection: estimates weeks to "Strong" band if trending up.
+//  Oura-style, sparse history: today's Posture Score as a hero, verdict card,
+//  7-day and 30-day trends, streak, corrections trend, and a progress projection.
+//  All framed around the Upright % metric — no health-outcome claims.
 //
 
 import SwiftUI
@@ -29,6 +25,7 @@ struct HistoryView: View {
                     streakCard
                     verdictCard
                     trendCard(title: "Last 7 days", days: week, asBars: true)
+                    correctionsTrendCard
                     trendCard(title: "Last 30 days", days: month, asBars: false)
                     progressCard
                     insight
@@ -56,7 +53,7 @@ struct HistoryView: View {
                 .font(.system(size: 84, weight: .thin))
                 .foregroundStyle(Palette.ink)
                 .monospacedDigit()
-            Text("% of time spent upright today")
+            Text("Posture Score today")
                 .font(.footnote)
                 .foregroundStyle(Palette.mist)
         }
@@ -91,7 +88,7 @@ struct HistoryView: View {
         }
     }
 
-    /// Count consecutive days (backward from today) with monitoredSeconds > 0.
+    /// Consecutive days (backward from today) with at least ~5 min monitored.
     private var streakDays: Int {
         let cal = Calendar.current
         let days = store.recentDays(90).sorted { $0.date > $1.date }
@@ -100,7 +97,7 @@ struct HistoryView: View {
 
         for day in days {
             guard cal.isDate(day.date, inSameDayAs: expected) else { break }
-            if day.monitoredSeconds > 0 {
+            if day.monitoredSeconds >= 300 {
                 count += 1
                 expected = cal.date(byAdding: .day, value: -1, to: expected) ?? expected
             } else {
@@ -190,6 +187,28 @@ struct HistoryView: View {
         }
     }
 
+    // MARK: - Corrections trend card
+
+    private var correctionsTrendCard: some View {
+        SoftCard {
+            VStack(alignment: .leading, spacing: Space.l) {
+                HStack {
+                    Eyebrow(text: "Corrections")
+                    Spacer()
+                    Text("\(totalCorrectionsThisWeek) total")
+                        .font(.system(.footnote, weight: .medium))
+                        .foregroundStyle(Palette.mist)
+                }
+                CorrectionsBarTrend(days: week)
+                    .frame(height: 90)
+            }
+        }
+    }
+
+    private var totalCorrectionsThisWeek: Int {
+        week.reduce(0) { $0 + $1.slouchEvents }
+    }
+
     private func averagePct(_ days: [PostureDay]) -> Int {
         let active = days.filter { $0.monitoredSeconds > 0 }
         guard !active.isEmpty else { return 0 }
@@ -236,22 +255,20 @@ struct HistoryView: View {
 
     private var projectionCopy: String {
         if weeklyTrend > 0, projectedWeeks != nil {
-            return "Your weekly average is trending up. Keep at it — you're building a lasting habit."
+            return "Your Posture Score is trending up. Keep at it — you're building a lasting habit."
         }
         if weeklyTrend < 0 {
-            return "Upright time dipped a bit this week. No worries — Perch will keep nudging you gently. Every day is a fresh start."
+            return "Your score dipped a bit this week. No worries — Perch will keep nudging you gently. Every day is a fresh start."
         }
         return "Your posture is holding steady week over week. Consistency is exactly the goal — no big swings needed."
     }
 
-    /// Weekly trend: this week's average minus last week's average.
     private var weeklyTrend: Double {
         let thisWeek = averagePct(store.recentDays(7))
         let lastWeek = averagePct(Array(store.recentDays(14).prefix(7)))
         return Double(thisWeek - lastWeek)
     }
 
-    /// Estimate weeks to 80% based on weekly trend, if positive.
     private var projectedWeeks: Int? {
         guard weeklyTrend > 0 else { return nil }
         let current = Double(averagePct(week))
@@ -322,6 +339,34 @@ private struct BarTrend: View {
         let f = DateFormatter()
         f.dateFormat = "EEEEE"
         return f.string(from: date)
+    }
+}
+
+// MARK: - Corrections bar trend (7-day, slouch events per day)
+
+private struct CorrectionsBarTrend: View {
+    let days: [PostureDay]
+
+    var body: some View {
+        let maxCorrections = days.map(\.slouchEvents).max() ?? 1
+        GeometryReader { geo in
+            let maxBar = geo.size.height - 22
+            HStack(alignment: .bottom, spacing: 10) {
+                ForEach(days) { day in
+                    VStack(spacing: 6) {
+                        Spacer(minLength: 0)
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(day.monitoredSeconds > 0 ? Palette.amberSoft : Palette.hairline)
+                            .frame(height: max(4, maxBar * CGFloat(day.slouchEvents) / CGFloat(max(maxCorrections, 1))))
+                        Text("\(day.slouchEvents)")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Palette.mist)
+                            .monospacedDigit()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+        }
     }
 }
 

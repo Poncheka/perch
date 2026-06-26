@@ -89,10 +89,24 @@ nonisolated struct CircleMember: Codable, Identifiable, Equatable, Sendable {
 /// and `posture_days`.
 struct CircleMemberSummary: Identifiable {
     let id: String          ///< member id
+    let userId: String      ///< auth user id
     let name: String        ///< display name (from profile / email)
     let todayUprightPct: Double
     let streak: Int
     let weeklyAvg: Double
+    /// Seconds monitored today — used for the fairness rule (<10 min → not ranked).
+    let todayMonitoredSeconds: Double
+    /// Full week of daily posture scores for the comparison chart.
+    let weekScores: [Double]  ///< 7 values, oldest→newest
+
+    /// Whether this member has enough data to be ranked on the leaderboard.
+    var hasEnoughData: Bool {
+        todayMonitoredSeconds >= 600  // 10 minutes
+    }
+
+    var leaderboardLabel: String {
+        hasEnoughData ? "\(Int(todayUprightPct.rounded()))%" : "Not enough data yet"
+    }
 
     var trendColor: String {
         switch weeklyAvg {
