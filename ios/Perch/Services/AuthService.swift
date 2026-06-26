@@ -63,6 +63,24 @@ final class AuthService {
         }
     }
 
+    // MARK: - Google Sign In
+
+    /// Launches the Google OAuth flow via ASWebAuthenticationSession.
+    /// The Supabase SDK handles the browser redirect automatically;
+    /// on completion the auth state observer picks up the new session.
+    func signInWithGoogle() async throws {
+        authError = nil
+        do {
+            _ = try await supabase.client.auth.signInWithOAuth(
+                provider: .google,
+                redirectTo: URL(string: "https://jzbgoibuljubumhzzzis.supabase.co/auth/v1/callback")!
+            )
+        } catch {
+            authError = error.localizedDescription
+            throw error
+        }
+    }
+
     // MARK: - Apple Sign In
 
     /// Call this when you already have an Apple ID token (e.g. from
