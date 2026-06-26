@@ -56,6 +56,8 @@ struct HomeView: View {
         .sheet(isPresented: $showHistory) { HistoryView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showCircles) { CirclesView() }
+        .task { refreshCirclesCount() }
+        .onChange(of: auth.isSignedIn) { _, _ in refreshCirclesCount() }
     }
 
     // MARK: - Calibration overlay (first-run)
@@ -278,29 +280,32 @@ struct HomeView: View {
         .padding(.horizontal, Space.s)
     }
 
+    @Environment(Database.self) private var db
+    @Environment(AuthService.self) private var auth
+
+    @State private var circlesCount: Int = 0
+
     private var circlesCardTitle: String {
-        guard let email = auth.email else { return "Circles" }
-        let count = circlesCount
-        return count > 0 ? "Your circles (\(count))" : "Circles"
+        guard auth.isSignedIn else { return "Circles" }
+        return circlesCount > 0 ? "Your circles (\(circlesCount))" : "Circles"
     }
 
     private var circlesCardSubtitle: String {
-        guard let email = auth.email else {
+        guard auth.isSignedIn else {
             return "Sign in to share posture with friends."
         }
-        let count = circlesCount
-        return count > 0
-            ? "Tap to see your circle" + (count > 1 ? "s" : "")
+        return circlesCount > 0
+            ? "Tap to see your circle" + (circlesCount > 1 ? "s" : "")
             : "Create or join a supportive posture circle."
     }
 
-    private var circlesCount: Int {
-        guard let email = auth.email else { return 0 }
-        let db = Database()
-        return db.circlesForUser(email).count
+    private func refreshCirclesCount() {
+        guard let uid = auth.userId else { circlesCount = 0; return }
+        Task {
+            let count = (await db.circlesForUser(uid)).count
+            await MainActor.run { circlesCount = count }
+        }
     }
-
-    @Environment(AuthService.self) private var auth
 
     private var footer: some View {
         VStack(spacing: Space.m) {

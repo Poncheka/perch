@@ -15,19 +15,15 @@ struct CircleDetailView: View {
     @Environment(PerchStore.self) private var store
     @Environment(PostureEngine.self) private var engine
     @Environment(AuthService.self) private var auth
+    @Environment(Database.self) private var db
     @Environment(\.dismiss) private var dismiss
 
+    @State private var members: [CircleMember] = []
     @State private var summaries: [CircleMemberSummary] = []
     @State private var showDeleteConfirm = false
 
-    private let db = Database()
-
-    private var isOwner: Bool { circle.ownerId == (auth.email ?? "") }
-
-    /// The current user's member record in this circle, if any.
-    private var myMembership: CircleMember? {
-        db.loadMembers(for: circle.id).first { $0.userId == (auth.email ?? "") }
-    }
+    private var isOwner: Bool { circle.ownerId == (auth.userId ?? "") }
+    private var currentUserId: String { auth.userId ?? "" }
 
     var body: some View {
         ScrollView {
@@ -79,7 +75,7 @@ struct CircleDetailView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(Palette.amber)
-                    } else if myMembership != nil {
+                    } else if members.contains(where: { $0.userId == currentUserId }) {
                         Button(role: .destructive) {
                             leaveCircle()
                         } label: {
@@ -96,7 +92,7 @@ struct CircleDetailView: View {
             .padding(.bottom, Space.xxl)
         }
         .background(PerchBackground())
-        .onAppear { loadSummaries() }
+        .task { await loadSummaries() }
         .alert("Delete \(circle.name)?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { deleteCircle() }
@@ -108,14 +104,18 @@ struct CircleDetailView: View {
     // MARK: - Delete / Leave
 
     private func deleteCircle() {
-        db.deleteCircle(circle.id)
-        dismiss()
+        Task {
+            await db.deleteCircle(circle.id)
+            dismiss()
+        }
     }
 
     private func leaveCircle() {
-        guard let membership = myMembership else { return }
-        db.removeMember(membership.id)
-        dismiss()
+        guard let membership = members.first(where: { $0.userId == currentUserId }) else { return }
+        Task {
+            await db.removeMember(membership.id)
+            dismiss()
+        }
     }
 
     // MARK: - Member card
@@ -123,7 +123,6 @@ struct CircleDetailView: View {
     private func memberCard(_ s: CircleMemberSummary) -> some View {
         SoftCard {
             VStack(spacing: Space.m) {
-                // Name row.
                 HStack {
                     Image(systemName: "person.circle")
                         .font(.system(size: 22, weight: .light))
@@ -138,7 +137,6 @@ struct CircleDetailView: View {
                         .monospacedDigit()
                 }
 
-                // Stats row.
                 HStack(spacing: Space.xl) {
                     statLabel("Today", "\(Int(s.todayUprightPct.rounded()))%", Palette.ink)
                     statLabel("Streak", "\(s.streak)d", Palette.sage)
@@ -170,17 +168,22 @@ struct CircleDetailView: View {
 
     // MARK: - Load member summaries
 
-    private func loadSummaries() {
-        let members = db.loadMembers(for: circle.id)
-        summaries = members.map { member in
-            buildSummary(for: member)
+    private func loadSummaries() async {
+        let loaded = await db.loadMembers(for: circle.id)
+        members = loaded
+        summaries = await withTaskGroup(of: CircleMemberSummary.self) { group in
+            for member in loaded {
+                group.addTask { await buildSummary(for: member) }
+            }
+            var results: [CircleMemberSummary] = []
+            for await summary in group { results.append(summary) }
+            return results
         }
-        // Sort by today's upright % descending (not a leaderboard, just sensible order).
         summaries.sort { $0.todayUprightPct > $1.todayUprightPct }
     }
 
-    private func buildSummary(for member: CircleMember) -> CircleMemberSummary {
-        if member.userId == (auth.email ?? "") {
+    private func buildSummary(for member: CircleMember) async -> CircleMemberSummary {
+        if member.userId == currentUserId {
             return CircleMemberSummary(
                 id: member.id,
                 name: "You",
@@ -190,23 +193,47 @@ struct CircleDetailView: View {
             )
         }
 
-        // Placeholder for other members — real data comes from Supabase.
-        // TODO: Replace with real posture_days data from Supabase when available.
+        // Load the fellow member's posture days from Supabase.
+        let peerDays = await db.loadDaysForUser(member.userId)
+        let todayPct: Double
+        let streak: Int
+        let weekly: Double
+
+        if let todayDay = peerDays.first(where: { Calendar.current.isDateInToday($0.date) }) {
+            todayPct = todayDay.uprightPct
+        } else {
+            todayPct = 0
+        }
+
+        // Compute streak from their days.
+        streak = computeStreak(from: peerDays)
+
+        // Compute weekly average.
+        let weekDays = peerDays.filter {
+            let daysAgo = Calendar.current.dateComponents([.day], from: $0.date, to: Date()).day ?? 0
+            return daysAgo >= 0 && daysAgo < 7 && $0.monitoredSeconds > 0
+        }
+        weekly = weekDays.isEmpty ? 0 : weekDays.map(\.uprightPct).reduce(0, +) / Double(weekDays.count)
+
+        let displayName = member.userId
+            .split(separator: "@").first
+            .map(String.init) ?? member.userId
+
         return CircleMemberSummary(
             id: member.id,
-            name: member.userId.components(separatedBy: "@").first ?? member.userId,
-            todayUprightPct: Double.random(in: 50...95),
-            streak: Int.random(in: 0...18),
-            weeklyAvg: Double.random(in: 55...92)
+            name: displayName,
+            todayUprightPct: todayPct,
+            streak: streak,
+            weeklyAvg: weekly
         )
     }
 
-    private func streakForCurrentUser() -> Int {
+    private func computeStreak(from days: [PostureDay]) -> Int {
         let cal = Calendar.current
-        let days = store.recentDays(90).sorted { $0.date > $1.date }
+        let sorted = days.sorted { $0.date > $1.date }
         var count = 0
         var expected = cal.startOfDay(for: Date())
-        for day in days {
+        for day in sorted {
             guard cal.isDate(day.date, inSameDayAs: expected) else { break }
             if day.monitoredSeconds > 0 {
                 count += 1
@@ -214,6 +241,10 @@ struct CircleDetailView: View {
             } else { break }
         }
         return count
+    }
+
+    private func streakForCurrentUser() -> Int {
+        computeStreak(from: store.recentDays(90))
     }
 
     private func weeklyAvgForCurrentUser() -> Double {

@@ -12,17 +12,12 @@ struct CirclesView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(PerchStore.self) private var store
     @Environment(AuthService.self) private var auth
+    @Environment(Database.self) private var db
 
+    @State private var userCircles: [CircleModel] = []
     @State private var showCreate = false
     @State private var showJoin = false
     @State private var showSignIn = false
-
-    /// All circles the current user belongs to.
-    private var userCircles: [CircleModel] {
-        guard let email = auth.email else { return [] }
-        let db = Database()
-        return db.circlesForUser(email)
-    }
 
     var body: some View {
         NavigationStack {
@@ -46,7 +41,16 @@ struct CirclesView: View {
             .sheet(isPresented: $showSignIn) { AccountSignInView() }
             .sheet(isPresented: $showCreate) { CreateCircleView() }
             .sheet(isPresented: $showJoin) { JoinCircleView() }
+            .task { await loadCircles() }
+            .onChange(of: auth.isSignedIn) { _, _ in
+                Task { await loadCircles() }
+            }
         }
+    }
+
+    private func loadCircles() async {
+        guard let uid = auth.userId else { userCircles = []; return }
+        userCircles = await db.circlesForUser(uid)
     }
 
     // MARK: - Sign-in prompt
@@ -107,7 +111,6 @@ struct CirclesView: View {
     private var circleList: some View {
         ScrollView {
             VStack(spacing: Space.l) {
-                // Header actions.
                 HStack(spacing: Space.l) {
                     Spacer()
                     PerchTextButton(title: "Create", color: Palette.sage) { showCreate = true }
@@ -158,6 +161,6 @@ struct CirclesView: View {
     }
 
     private func ownerLabel(_ circle: CircleModel) -> String {
-        circle.ownerId == (auth.email ?? "") ? "You created this circle" : "Member"
+        circle.ownerId == (auth.userId ?? "") ? "You created this circle" : "Member"
     }
 }

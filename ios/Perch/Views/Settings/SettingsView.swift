@@ -87,7 +87,12 @@ struct SettingsView: View {
                             Text(auth.email ?? "")
                                 .foregroundStyle(Palette.mist)
                         }
-                        Button("Sign out", role: .destructive) { auth.signOut() }
+                        Button("Sign out", role: .destructive) {
+                            Task {
+                                try? await auth.signOut()
+                                store.wipeForSignOut()
+                            }
+                        }
                     } else {
                         Button("Sign in") { showAccount = true }
                             .tint(Palette.sage)

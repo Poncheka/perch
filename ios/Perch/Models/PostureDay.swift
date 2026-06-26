@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct PostureDay: Codable, Equatable, Identifiable {
+nonisolated struct PostureDay: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var userId: String
     /// Calendar day key (start of day).
@@ -15,10 +15,18 @@ struct PostureDay: Codable, Equatable, Identifiable {
     /// 0...100 — share of monitored time spent upright.
     var uprightPct: Double
     var slouchEvents: Int
-
-    /// Seconds counters used to recompute `uprightPct` as the day progresses.
     var uprightSeconds: Double
     var monitoredSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case userId = "user_id"
+        case date
+        case uprightPct = "upright_pct"
+        case slouchEvents = "slouch_events"
+        case uprightSeconds = "upright_seconds"
+        case monitoredSeconds = "monitored_seconds"
+    }
 
     static func makeEmpty(userId: String, date: Date) -> PostureDay {
         PostureDay(

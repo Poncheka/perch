@@ -2,12 +2,12 @@
 //  Subscription.swift
 //  Perch
 //
-//  Mirrors the Supabase `subscription` table. Drives paywall + premium gating.
+//  Mirrors the Supabase `subscriptions` table. Drives paywall + premium gating.
 //
 
 import Foundation
 
-enum Plan: String, Codable, CaseIterable, Identifiable {
+nonisolated enum Plan: String, Codable, CaseIterable, Identifiable, Sendable {
     case none
     case trial
     case monthly
@@ -36,18 +36,27 @@ enum Plan: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum SubscriptionStatus: String, Codable {
+nonisolated enum SubscriptionStatus: String, Codable, Sendable {
     case inactive
     case trialing
     case active
     case expired
 }
 
-struct Subscription: Codable, Equatable {
+nonisolated struct Subscription: Codable, Equatable, Identifiable, Sendable {
     var userId: String
     var plan: Plan
     var trialEndsAt: Date?
     var status: SubscriptionStatus
+
+    var id: String { userId }
+
+    enum CodingKeys: String, CodingKey {
+        case userId = "user_id"
+        case plan
+        case trialEndsAt = "trial_ends_at"
+        case status
+    }
 
     static func makeInactive(userId: String) -> Subscription {
         Subscription(userId: userId, plan: .none, trialEndsAt: nil, status: .inactive)

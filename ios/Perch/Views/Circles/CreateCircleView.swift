@@ -10,13 +10,11 @@ import SwiftUI
 struct CreateCircleView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthService.self) private var auth
-    @Environment(PerchStore.self) private var store
+    @Environment(Database.self) private var db
 
     @State private var name = ""
     @State private var createdCircle: CircleModel?
     @State private var showShare = false
-
-    private let db = Database()
 
     var body: some View {
         NavigationStack {
@@ -128,11 +126,15 @@ struct CreateCircleView: View {
 
     private func createCircle() {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let email = auth.email else { return }
-        let circle = CircleModel.make(name: trimmed, ownerId: email)
-        db.saveCircle(circle)
-        let membership = CircleMember.make(circleId: circle.id, userId: email, role: .owner)
-        db.saveCircleMember(membership)
-        withAnimation { createdCircle = circle }
+        guard !trimmed.isEmpty, let uid = auth.userId else { return }
+        let circle = CircleModel.make(name: trimmed, ownerId: uid)
+        let membership = CircleMember.make(circleId: circle.id, userId: uid, role: .owner)
+        Task {
+            await db.saveCircle(circle)
+            await db.saveCircleMember(membership)
+            await MainActor.run {
+                withAnimation { createdCircle = circle }
+            }
+        }
     }
 }

@@ -11,13 +11,12 @@ import SwiftUI
 struct JoinCircleView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthService.self) private var auth
+    @Environment(Database.self) private var db
 
     @State private var code = ""
     @State private var working = false
     @State private var error: String?
     @State private var joinedCircle: CircleModel?
-
-    private let db = Database()
 
     var body: some View {
         NavigationStack {
@@ -68,7 +67,6 @@ struct JoinCircleView: View {
                         .fill(Palette.surface)
                 )
                 .onChange(of: code) { _, newValue in
-                    // Auto-uppercase and limit to 6 chars.
                     let filtered = newValue.uppercased().filter { $0.isLetter || $0.isNumber }
                     if filtered.count <= 6 { code = filtered }
                 }
@@ -129,32 +127,30 @@ struct JoinCircleView: View {
     private func join() async {
         working = true
         error = nil
-        // Simulate a brief network round-trip.
-        try? await Task.sleep(for: .milliseconds(600))
 
-        guard let email = auth.email else {
+        guard let uid = auth.userId else {
             error = "Please sign in first."
             working = false
             return
         }
 
-        guard let circle = db.findCircleByInviteCode(code) else {
+        guard let circle = await db.findCircleByInviteCode(code) else {
             error = "No circle found with that code. Check the spelling and try again."
             working = false
             return
         }
 
         // Check user isn't already a member.
-        let existing = db.loadMembers(for: circle.id)
-        if existing.contains(where: { $0.userId == email }) {
-            withAnimation { joinedCircle = circle }
+        let existing = await db.loadMembers(for: circle.id)
+        if existing.contains(where: { $0.userId == uid }) {
+            await MainActor.run { withAnimation { joinedCircle = circle } }
             working = false
             return
         }
 
-        let membership = CircleMember.make(circleId: circle.id, userId: email, role: .member)
-        db.saveCircleMember(membership)
-        withAnimation { joinedCircle = circle }
+        let membership = CircleMember.make(circleId: circle.id, userId: uid, role: .member)
+        await db.saveCircleMember(membership)
+        await MainActor.run { withAnimation { joinedCircle = circle } }
         working = false
     }
 }

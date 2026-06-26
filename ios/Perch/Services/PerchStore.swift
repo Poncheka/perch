@@ -19,22 +19,57 @@ final class PerchStore {
     var hasCalibrated: Bool
 
     private let db: Database
+    let auth: AuthService
 
-    init() {
-        let db = Database()
+    init(db: Database, auth: AuthService) {
         self.db = db
-        let loadedProfile = db.loadProfile() ?? Profile.makeDefault()
-        self.profile = loadedProfile
-        self.subscription = db.loadSubscription() ?? Subscription.makeInactive(userId: loadedProfile.id)
-        self.days = db.loadDays()
+        self.auth = auth
+        let fresh = Profile.makeDefault()
+        self.profile = fresh
+        self.subscription = Subscription.makeInactive(userId: fresh.id)
+        self.days = []
         self.hasOnboarded = db.hasOnboarded
         self.hasCalibrated = db.hasCalibrated
+
+        // Load persisted data asynchronously.
+        Task { await loadFromDisk() }
+    }
+
+    /// Called on launch and after sign-in to load Supabase data.
+    func loadFromSupabase() async {
+        guard auth.isSignedIn, let uid = auth.userId else { return }
+        // Update profile id to match the auth user.
+        if profile.id != uid {
+            profile.id = uid
+            subscription.userId = uid
+        }
+        // Load profile, subscription, days from Supabase.
+        if let remoteProfile = await db.loadProfile() {
+            profile = remoteProfile
+        } else {
+            // No profile yet — upsert from the handle_new_user trigger default.
+            try? await auth.ensureProfile()
+            if let p = await db.loadProfile() {
+                profile = p
+            }
+        }
+        if let sub = await db.loadSubscription() {
+            subscription = sub
+        }
+        days = await db.loadDays()
+    }
+
+    /// Load from local UserDefaults (used when signed out).
+    private func loadFromDisk() async {
+        if let p = await db.loadProfile() { profile = p }
+        if let s = await db.loadSubscription() { subscription = s }
+        days = await db.loadDays()
     }
 
     // MARK: - Profile / settings
 
     func saveProfile() {
-        db.saveProfile(profile)
+        Task { await db.saveProfile(profile) }
     }
 
     /// Capture a calibration baseline (the current raw tilt from PostureSource).
@@ -47,9 +82,10 @@ final class PerchStore {
 
     func applySubscription(_ sub: Subscription) {
         var updated = sub
-        updated.userId = profile.id
+        if let uid = auth.userId { updated.userId = uid }
+        else { updated.userId = profile.id }
         subscription = updated
-        db.saveSubscription(updated)
+        Task { await db.saveSubscription(updated) }
     }
 
     // MARK: - Onboarding
@@ -77,18 +113,29 @@ final class PerchStore {
 
     /// The record for today, creating an empty one if needed.
     func todayRecord() -> PostureDay {
+        let uid = auth.userId ?? profile.id
         if let existing = days.first(where: {
-            $0.userId == profile.id &&
+            $0.userId == uid &&
             Calendar.current.isDateInToday($0.date)
         }) {
             return existing
         }
-        return PostureDay.makeEmpty(userId: profile.id, date: Date())
+        return PostureDay.makeEmpty(userId: uid, date: Date())
     }
 
     func persistDay(_ day: PostureDay) {
-        db.upsertDay(day)
-        days = db.loadDays()
+        Task { await db.upsertDay(day) }
+        // Update in-memory immediately.
+        if let index = days.firstIndex(where: {
+            $0.userId == day.userId &&
+            Calendar.current.isDate($0.date, inSameDayAs: day.date)
+        }) {
+            days[index] = day
+        } else {
+            days.append(day)
+        }
+        days.sort { $0.date < $1.date }
+        if days.count > 120 { days = Array(days.suffix(120)) }
     }
 
     /// Days within the last `count` calendar days, oldest → newest, padded with
@@ -96,10 +143,11 @@ final class PerchStore {
     func recentDays(_ count: Int) -> [PostureDay] {
         let cal = Calendar.current
         let today = cal.startOfDay(for: Date())
+        let uid = auth.userId ?? profile.id
         return (0..<count).reversed().map { offset in
             let date = cal.date(byAdding: .day, value: -offset, to: today) ?? today
             return days.first(where: { cal.isDate($0.date, inSameDayAs: date) })
-                ?? PostureDay.makeEmpty(userId: profile.id, date: date)
+                ?? PostureDay.makeEmpty(userId: uid, date: date)
         }
     }
 
