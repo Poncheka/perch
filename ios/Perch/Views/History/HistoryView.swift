@@ -2,15 +2,15 @@
 //  HistoryView.swift
 //  Perch
 //
-//  Oura-style, sparse history: today's Posture Score as a hero, verdict card,
-//  7-day and 30-day trends, streak, corrections trend, and a progress projection.
-//  All framed around the Upright % metric — no health-outcome claims.
+//  The "Progress" tab. All analytics live here: today's Posture Score hero,
+//  Corrections and Streak cards, verdict card, 7-day and 30-day trends,
+//  average upright stretch, and progress projection.
+//  Oura-style, sparse, calm — framed around Upright % only, no health claims.
 //
 
 import SwiftUI
 
 struct HistoryView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(PerchStore.self) private var store
     @Environment(PostureEngine.self) private var engine
 
@@ -18,30 +18,23 @@ struct HistoryView: View {
     private var month: [PostureDay] { store.recentDays(30) }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(spacing: Space.xxl) {
-                    hero
-                    streakCard
-                    verdictCard
-                    trendCard(title: "Last 7 days", days: week, asBars: true)
-                    correctionsTrendCard
-                    trendCard(title: "Last 30 days", days: month, asBars: false)
-                    progressCard
-                    insight
-                }
-                .padding(.horizontal, Space.xl)
-                .padding(.vertical, Space.l)
+        ScrollView {
+            VStack(spacing: Space.xxl) {
+                hero
+                statCards
+                streakCard
+                verdictCard
+                trendCard(title: "Last 7 days", days: week, asBars: true)
+                correctionsTrendCard
+                trendCard(title: "Last 30 days", days: month, asBars: false)
+                averageStretchCard
+                progressCard
+                insight
             }
-            .background(PerchBackground())
-            .navigationTitle("History")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
+            .padding(.horizontal, Space.xl)
+            .padding(.vertical, Space.l)
         }
+        .background(PerchBackground())
     }
 
     // MARK: - Hero
@@ -59,6 +52,51 @@ struct HistoryView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.top, Space.l)
+    }
+
+    // MARK: - Stat cards (Corrections + Streak)
+
+    private var statCards: some View {
+        HStack(spacing: Space.m) {
+            statCard(
+                icon: "arrow.triangle.swap",
+                value: "\(todayRecord.slouchEvents)",
+                label: "Corrections"
+            )
+            statCard(
+                icon: "flame",
+                value: "\(streakDays)",
+                label: "Streak"
+            )
+        }
+    }
+
+    private func statCard(icon: String, value: String, label: String) -> some View {
+        VStack(spacing: Space.xs) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .light))
+                .foregroundStyle(Palette.sage)
+            Text(value)
+                .font(.system(.title2, weight: .thin))
+                .foregroundStyle(Palette.ink)
+                .monospacedDigit()
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Palette.mist)
+                .tracking(1.2)
+                .textCase(.uppercase)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, Space.l)
+        .background(
+            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .fill(Palette.surface)
+        )
+        .shadow(color: Color.black.opacity(0.04), radius: 10, x: 0, y: 4)
+    }
+
+    private var todayRecord: PostureDay {
+        store.todayRecord()
     }
 
     // MARK: - Streak card
@@ -207,6 +245,45 @@ struct HistoryView: View {
 
     private var totalCorrectionsThisWeek: Int {
         week.reduce(0) { $0 + $1.slouchEvents }
+    }
+
+    // MARK: - Average upright stretch
+
+    private var averageStretchCard: some View {
+        SoftCard {
+            HStack(spacing: Space.l) {
+                Image(systemName: "clock")
+                    .font(.system(size: 22, weight: .light))
+                    .foregroundStyle(Palette.sage)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Average upright stretch")
+                        .font(.system(.callout, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                    Text(averageStretchText)
+                        .font(.footnote)
+                        .foregroundStyle(Palette.mist)
+                        .lineSpacing(2)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private var averageStretchText: String {
+        let active = week.filter { $0.monitoredSeconds > 0 }
+        guard !active.isEmpty else { return "Not enough data yet — keep your AirPods in." }
+        let totalUpright = active.reduce(0.0) { $0 + $1.uprightSeconds }
+        let totalCorrections = active.reduce(0) { $0 + $1.slouchEvents }
+        guard totalCorrections > 0 else {
+            let stretch = Int(totalUpright / 60)
+            return stretch > 0
+                ? "You held good posture ~\(stretch) min at a stretch on average this week."
+                : "Not enough data yet for a meaningful average."
+        }
+        let avgStretch = totalUpright / Double(totalCorrections) / 60
+        return avgStretch >= 1
+            ? "You held good posture ~\(Int(avgStretch.rounded())) min at a stretch on average this week."
+            : "Short but steady stretches this week — that still adds up."
     }
 
     private func averagePct(_ days: [PostureDay]) -> Int {

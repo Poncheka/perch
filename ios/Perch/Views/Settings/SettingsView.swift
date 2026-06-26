@@ -2,14 +2,13 @@
 //  SettingsView.swift
 //  Perch
 //
-//  Minimal settings. Most people never touch these — sensible defaults, calm
-//  controls, and a quiet account section.
+//  The "Settings" tab. Minimal — sensible defaults, calm controls,
+//  and a quiet account section.
 //
 
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(PerchStore.self) private var store
     @Environment(PostureSource.self) private var source
     @Environment(AuthService.self) private var auth
@@ -115,11 +114,6 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
             .sheet(isPresented: $showRecalibrate) { RecalibrateView() }
             .sheet(isPresented: $showAccount) { AccountSignInView() }
             .sheet(isPresented: $showPaywall) { PaywallView(context: .manage) }

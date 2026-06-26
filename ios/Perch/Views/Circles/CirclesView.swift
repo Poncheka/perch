@@ -2,8 +2,8 @@
 //  CirclesView.swift
 //  Perch
 //
-//  Oura-style shared circles. When not signed in, shows sign-in options
-//  directly on this page (Apple + Google) — no two-step prompt → sheet.
+//  The "Circles" tab. When not signed in, shows sign-in options
+//  directly on this page (Apple + Google) — no two-step prompt.
 //  When signed in, lists circles and offers Create / Join actions.
 //
 
@@ -12,7 +12,6 @@ import AuthenticationServices
 import GoogleSignIn
 
 struct CirclesView: View {
-    @Environment(\.dismiss) private var dismiss
     @Environment(PerchStore.self) private var store
     @Environment(AuthService.self) private var auth
     @Environment(Database.self) private var db
@@ -41,11 +40,6 @@ struct CirclesView: View {
             }
             .navigationTitle("Circles")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
             .sheet(isPresented: $showCreate) { CreateCircleView() }
             .sheet(isPresented: $showJoin) { JoinCircleView() }
             .task { await loadCircles() }
