@@ -75,13 +75,11 @@ struct OnboardingView: View {
     // MARK: - Navigation
 
     private func advance() {
-        withAnimation(.easeInOut(duration: 0.4)) {
-            step = min(step + 1, lastStep)
-        }
+        step = min(step + 1, lastStep)
     }
 
     private func skipToEnd() {
-        withAnimation(.easeInOut(duration: 0.4)) { step = lastStep }
+        step = lastStep
     }
 
     private func finishOnboarding() {
@@ -194,15 +192,6 @@ private struct ConnectAirPodsPage: View {
                         .foregroundStyle(Palette.inkSoft)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
-
-                    HStack(spacing: Space.s) {
-                        ProgressView()
-                            .tint(Palette.sage)
-                        Text("Waiting for AirPods…")
-                            .font(.system(.subheadline, weight: .regular))
-                            .foregroundStyle(Palette.mist)
-                    }
-                    .padding(.top, Space.s)
                 }
             }
 

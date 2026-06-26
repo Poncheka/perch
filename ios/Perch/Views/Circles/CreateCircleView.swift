@@ -2,7 +2,7 @@
 //  CreateCircleView.swift
 //  Perch
 //
-//  Name a circle, call the `create_circle(p_name)` RPC, and share the
+//  Name a pillar, call the `create_circle(p_name)` RPC, and share the
 //  invite code with a friend.
 //
 
@@ -29,7 +29,7 @@ struct CreateCircleView: View {
                     createForm
                 }
             }
-            .navigationTitle("New circle")
+            .navigationTitle("New pillar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -48,7 +48,7 @@ struct CreateCircleView: View {
                 .font(.system(size: 44, weight: .thin))
                 .foregroundStyle(Palette.sage)
             VStack(spacing: Space.s) {
-                Text("Name your circle")
+                Text("Name your pillar")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Palette.ink)
                 Text("Pick a name your friends will recognize.")
@@ -70,7 +70,7 @@ struct CreateCircleView: View {
                     .foregroundStyle(Palette.amber)
             }
 
-            PerchPrimaryButton(title: working ? "Creating…" : "Create circle") {
+            PerchPrimaryButton(title: working ? "Creating…" : "Create pillar") {
                 Task { await doCreate() }
             }
             .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
@@ -119,7 +119,7 @@ struct CreateCircleView: View {
             }
             .sheet(isPresented: $showShare) {
                 ShareSheet(activityItems: [
-                    "Join my Perch circle \"\(circle.name)\"! Use invite code \(circle.inviteCode) or download Perch: https://getperch.app/join?code=\(circle.inviteCode)"
+                    "Join my Perch pillar \"\(circle.name)\"! Use invite code \(circle.inviteCode) or download Perch: https://getperch.app/join?code=\(circle.inviteCode)"
                 ])
                 .presentationDetents([.medium])
             }

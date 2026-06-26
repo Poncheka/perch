@@ -2,7 +2,7 @@
 //  MainTabView.swift
 //  Perch
 //
-//  Bottom tab bar with 4 tabs: Today, Progress, Circles, Settings.
+//  Bottom tab bar with 4 tabs: Today, Progress, Pillars, Settings.
 //  Sage tint for the selected tab, warm paper background throughout.
 //
 
@@ -29,7 +29,7 @@ struct MainTabView: View {
 
             CirclesView()
                 .tabItem {
-                    Label("Circles", systemImage: "person.2")
+                    Label("Pillars", systemImage: "person.2")
                 }
 
             SettingsView()

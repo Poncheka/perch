@@ -2,7 +2,7 @@
 //  CircleDetailView.swift
 //  Perch
 //
-//  Circle detail: member leaderboard (ranked by Posture Score, crown on leader,
+//  Pillar detail: member leaderboard (ranked by Posture Score, crown on leader,
 //  fairness rule for thin data), stacked 7-day comparison chart, and member
 //  management. Calm and supportive tone — the crown is a fun reward, not a
 //  judgment.
@@ -78,7 +78,7 @@ struct CircleDetailView: View {
                 PerchTextButton(title: "Invite a friend", color: Palette.sage) {
                     let av = UIActivityViewController(
                         activityItems: [
-                            "Join my Perch circle \"\(currentCircle.name)\"! Use invite code \(currentCircle.inviteCode) or download Perch: https://getperch.app/join?code=\(currentCircle.inviteCode)"
+                            "Join my Perch pillar \"\(currentCircle.name)\"! Use invite code \(currentCircle.inviteCode) or download Perch: https://getperch.app/join?code=\(currentCircle.inviteCode)"
                         ],
                         applicationActivities: nil
                     )
@@ -129,7 +129,7 @@ struct CircleDetailView: View {
                         Button(role: .destructive) {
                             showDeleteConfirm = true
                         } label: {
-                            Label("Delete this circle", systemImage: "trash")
+                            Label("Delete this pillar", systemImage: "trash")
                                 .font(.system(.subheadline, weight: .medium))
                         }
                         .buttonStyle(.plain)
@@ -138,7 +138,7 @@ struct CircleDetailView: View {
                         Button(role: .destructive) {
                             leaveCircle()
                         } label: {
-                            Label("Leave this circle", systemImage: "rectangle.portrait.and.arrow.right")
+                            Label("Leave this pillar", systemImage: "rectangle.portrait.and.arrow.right")
                                 .font(.system(.subheadline, weight: .medium))
                         }
                         .buttonStyle(.plain)
@@ -156,14 +156,14 @@ struct CircleDetailView: View {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { deleteCircle() }
         } message: {
-            Text("All members will be removed and the circle will be permanently deleted.")
+            Text("All members will be removed and the pillar will be permanently deleted.")
         }
-        .alert("Rename circle", isPresented: $showRename) {
-            TextField("Circle name", text: $renameText)
+        .alert("Rename pillar", isPresented: $showRename) {
+            TextField("Pillar name", text: $renameText)
             Button("Cancel", role: .cancel) {}
             Button("Save") { renameCircle() }
         } message: {
-            Text("Pick a new name for your circle.")
+            Text("Pick a new name for your pillar.")
         }
     }
 

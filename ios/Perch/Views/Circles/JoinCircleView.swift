@@ -2,7 +2,7 @@
 //  JoinCircleView.swift
 //  Perch
 //
-//  Enter a 6-character invite code to join a friend's circle. Uses the
+//  Enter a 6-character invite code to join a friend's pillar. Uses the
 //  `join_circle_by_code(p_code)` RPC. Shows a clear one-line consent note
 //  when joining.
 //
@@ -29,7 +29,7 @@ struct JoinCircleView: View {
                     joinForm
                 }
             }
-            .navigationTitle("Join a circle")
+            .navigationTitle("Join a pillar")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -51,7 +51,7 @@ struct JoinCircleView: View {
                 Text("Enter invite code")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Palette.ink)
-                Text("Ask a friend for their 6-letter circle code.")
+                Text("Ask a friend for their 6-letter pillar code.")
                     .font(.body)
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)
@@ -84,7 +84,7 @@ struct JoinCircleView: View {
                 Image(systemName: "lock.shield")
                     .font(.footnote)
                     .foregroundStyle(Palette.mist)
-                Text("Your daily posture score and streak will be visible to members of this circle.")
+                Text("Your daily posture score and streak will be visible to members of this pillar.")
                     .font(.caption)
                     .foregroundStyle(Palette.mist)
                     .multilineTextAlignment(.center)
@@ -92,7 +92,7 @@ struct JoinCircleView: View {
             }
             .padding(.top, Space.s)
 
-            PerchPrimaryButton(title: working ? "Joining…" : "Join circle") {
+            PerchPrimaryButton(title: working ? "Joining…" : "Join pillar") {
                 Task { await doJoin() }
             }
             .disabled(code.count < 6 || working)
@@ -115,7 +115,7 @@ struct JoinCircleView: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Palette.ink)
                     .multilineTextAlignment(.center)
-                Text("Your circle is ready. You'll see each other's posture progress below.")
+                Text("Your pillar is ready. You'll see each other's posture progress below.")
                     .font(.body)
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)

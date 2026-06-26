@@ -91,7 +91,9 @@ final class PostureSource: NSObject {
 
     // MARK: - Real sensor internals
 
-    private let motionManager = CMHeadphoneMotionManager()
+    /// Nil until `startReal()` creates it — no Motion & Fitness prompt fires
+    /// before the user is ready.
+    private var motionManager: CMHeadphoneMotionManager?
     private var rawTilt: Double = 0      ///< Live uncalibrated pitch from sensor (degrees).
     private var baseline: Double = 0     ///< Pitch captured at calibration time.
     private var _sensorAirpodsConnected: Bool = false
@@ -120,7 +122,6 @@ final class PostureSource: NSObject {
     /// should begin (after onboarding, or on relaunch if already onboarded).
     override init() {
         super.init()
-        motionManager.delegate = self
         configureAudioSession()
         observeAudioNotifications()
         updateAudioRoute()
@@ -148,7 +149,7 @@ final class PostureSource: NSObject {
     func stop() {
         simTimer?.invalidate()
         simTimer = nil
-        motionManager.stopDeviceMotionUpdates()
+        motionManager?.stopDeviceMotionUpdates()
         stopKeepAlive()
     }
 
@@ -186,7 +187,16 @@ final class PostureSource: NSObject {
     // MARK: - Real sensor pipeline
 
     private func startReal() {
-        guard motionManager.isDeviceMotionAvailable else {
+        let manager: CMHeadphoneMotionManager
+        if let existing = motionManager {
+            manager = existing
+        } else {
+            manager = CMHeadphoneMotionManager()
+            manager.delegate = self
+            motionManager = manager
+        }
+
+        guard manager.isDeviceMotionAvailable else {
             _sensorAirpodsConnected = false
             return
         }
@@ -194,7 +204,7 @@ final class PostureSource: NSObject {
         updateAudioRoute()
         startKeepAlive()
 
-        motionManager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
+        manager.startDeviceMotionUpdates(to: .main) { [weak self] motion, error in
             guard let self, let motion = motion else { return }
             self.handleRealMotion(motion)
         }

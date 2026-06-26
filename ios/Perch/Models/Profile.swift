@@ -97,7 +97,7 @@ nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
         displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
         baselineAngle = try c.decodeIfPresent(Double.self, forKey: .baselineAngle) ?? 0
         sensitivity = try c.decodeIfPresent(Double.self, forKey: .sensitivity) ?? 0.5
-        nudgeStyle = (try? c.decodeIfPresent(NudgeStyle.self, forKey: .nudgeStyle)) ?? .haptic
+        nudgeStyle = (try? c.decodeIfPresent(NudgeStyle.self, forKey: .nudgeStyle)) ?? .both
         let sh = try c.decodeIfPresent(Int.self, forKey: .quietStartHour) ?? 22
         let sm = try c.decodeIfPresent(Int.self, forKey: .quietStartMinute) ?? 0
         quietStart = Clock(hour: sh, minute: sm)
@@ -133,7 +133,7 @@ nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
             displayName: nil,
             baselineAngle: 0,
             sensitivity: 0.5,
-            nudgeStyle: .haptic,
+            nudgeStyle: .both,
             quietStart: .defaultQuietStart,
             quietEnd: .defaultQuietEnd,
             muteOnCall: true,

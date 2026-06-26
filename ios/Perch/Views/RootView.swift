@@ -7,7 +7,7 @@
 //    2. Motion & Fitness permission (dedicated screen)
 //    3. Calibration (hold-steady capture)
 //    4. Paywall
-//    5. MainTabView (Today / Progress / Circles / Settings)
+//    5. MainTabView (Today / Progress / Pillars / Settings)
 //
 //  On subsequent launches, goes straight to the tab bar.
 //
@@ -22,7 +22,7 @@ struct RootView: View {
     @State private var showPaywall = false
 
     /// Phases that happen after onboarding but before the tab bar.
-    enum PostOnboardingPhase {
+    enum PostOnboardingPhase: Equatable {
         case motionPermission
         case calibration
         case paywall
@@ -35,41 +35,29 @@ struct RootView: View {
         Group {
             if !store.hasOnboarded {
                 OnboardingView()
-                    .transition(.opacity)
             } else {
                 switch phase {
                 case .motionPermission:
                     MotionPermissionView(onComplete: { advancePostOnboarding() })
-                        .transition(.opacity)
                 case .calibration:
                     CalibrationOnboardingView(onComplete: { advancePostOnboarding() })
-                        .transition(.opacity)
                 case .paywall:
                     Color.clear
                         .frame(width: 1, height: 1)
-                        .transition(.identity)
                         .onAppear {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                showPaywall = true
-                            }
+                            showPaywall = true
                         }
                 case .done:
                     MainTabView()
-                        .transition(.opacity)
                 }
             }
         }
-        .animation(.easeInOut(duration: 0.5), value: store.hasOnboarded)
-        .animation(.easeInOut(duration: 0.5), value: phase)
         .onChange(of: store.hasOnboarded) { _, onboarded in
             if onboarded {
                 if store.subscription.isUnlocked {
                     phase = .done
                 } else if store.hasCalibrated {
                     phase = .paywall
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        showPaywall = true
-                    }
                 } else {
                     phase = .motionPermission
                 }
@@ -89,29 +77,21 @@ struct RootView: View {
     // MARK: - Post-onboarding navigation
 
     private func advancePostOnboarding() {
-        withAnimation(.easeInOut(duration: 0.5)) {
-            switch phase {
-            case .motionPermission:
-                if store.hasCalibrated {
-                    phase = .paywall
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        showPaywall = true
-                    }
-                } else {
-                    phase = .calibration
-                }
-            case .calibration:
-                if store.subscription.isUnlocked {
-                    phase = .done
-                } else {
-                    phase = .paywall
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        showPaywall = true
-                    }
-                }
-            default:
-                break
+        switch phase {
+        case .motionPermission:
+            if store.hasCalibrated {
+                phase = .paywall
+            } else {
+                phase = .calibration
             }
+        case .calibration:
+            if store.subscription.isUnlocked {
+                phase = .done
+            } else {
+                phase = .paywall
+            }
+        default:
+            break
         }
     }
 }

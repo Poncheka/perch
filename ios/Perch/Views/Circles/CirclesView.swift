@@ -2,9 +2,9 @@
 //  CirclesView.swift
 //  Perch
 //
-//  The "Circles" tab. When not signed in, shows sign-in options
+//  The "Pillars" tab. When not signed in, shows sign-in options
 //  directly on this page (Apple + Google) — no two-step prompt.
-//  When signed in, lists circles and offers Create / Join actions.
+//  When signed in, lists pillars and offers Create / Join actions.
 //
 
 import SwiftUI
@@ -38,7 +38,7 @@ struct CirclesView: View {
                     circleList
                 }
             }
-            .navigationTitle("Circles")
+            .navigationTitle("Pillars")
             .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showCreate) { CreateCircleView() }
             .sheet(isPresented: $showJoin) { JoinCircleView() }
@@ -63,10 +63,10 @@ struct CirclesView: View {
                 .font(.system(size: 48, weight: .thin))
                 .foregroundStyle(Palette.sage)
             VStack(spacing: Space.s) {
-                Text("Sign in for Circles")
+                Text("Sign in for Pillars")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Palette.ink)
-                Text("Share your posture journey with a small, supportive group. Sign in to create or join a circle.")
+                Text("Your Pillars are the friends who hold each other up to reach your posture goals. It's better with friends.")
                     .font(.body)
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)
@@ -95,7 +95,7 @@ struct CirclesView: View {
                 }
             }
 
-            Text("Your posture data stays on your phone until you sign in. Only your daily score and streak are shared with circles you join.")
+            Text("Your posture data stays on your phone until you sign in. Only your daily score and streak are shared with pillars you join.")
                 .font(.caption)
                 .foregroundStyle(Palette.mist)
                 .multilineTextAlignment(.center)
@@ -119,7 +119,7 @@ struct CirclesView: View {
                 Text("Your display name")
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Palette.ink)
-                Text("This is the name your circle-mates will see. You can change it later in Settings.")
+                Text("This is the name your pillar-mates will see. You can change it later in Settings.")
                     .font(.body)
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)
@@ -277,7 +277,7 @@ struct CirclesView: View {
         return current
     }
 
-    // MARK: - Empty state (signed in, no circles)
+    // MARK: - Empty state (signed in, no pillars)
 
     private var emptyState: some View {
         VStack(spacing: Space.xl) {
@@ -286,17 +286,17 @@ struct CirclesView: View {
                 .font(.system(size: 48, weight: .thin))
                 .foregroundStyle(Palette.sage)
             VStack(spacing: Space.s) {
-                Text("No circles yet")
+                Text("No pillars yet")
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(Palette.ink)
-                Text("Create one and invite a friend, or join theirs with a code.")
+                Text("Your Pillars are the friends who hold each other up to reach your posture goals. It's better with friends.")
                     .font(.body)
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
             }
             HStack(spacing: Space.l) {
-                PerchPrimaryButton(title: "Create") { showCreate = true }
+                PerchPrimaryButton(title: "Create a pillar") { showCreate = true }
                 PerchTextButton(title: "Join with code", color: Palette.sage) { showJoin = true }
             }
             .padding(.top, Space.s)
@@ -305,7 +305,7 @@ struct CirclesView: View {
         .padding(.horizontal, Space.xl)
     }
 
-    // MARK: - Circle list (signed in, has circles)
+    // MARK: - Pillar list (signed in, has pillars)
 
     private var circleList: some View {
         ScrollView {
@@ -360,6 +360,6 @@ struct CirclesView: View {
     }
 
     private func ownerLabel(_ circle: CircleModel) -> String {
-        circle.ownerId == (auth.userId ?? "") ? "You created this circle" : "Member"
+        circle.ownerId == (auth.userId ?? "") ? "You created this pillar" : "Member"
     }
 }
