@@ -2,10 +2,13 @@
 //  AccountSignInView.swift
 //  Perch
 //
-//  Supabase email + password sign-in / sign-up. Quiet, minimal.
+//  Native Sign in with Apple. After the first sign-in, lets the user set or
+//  confirm a display_name — the name their circle-mates see. All posture
+//  tracking remains fully anonymous / local until the user signs in for Circles.
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct AccountSignInView: View {
     @Environment(\.dismiss) private var dismiss
@@ -13,105 +16,173 @@ struct AccountSignInView: View {
     @Environment(Database.self) private var db
     @Environment(PerchStore.self) private var store
 
-    @State private var email = ""
-    @State private var password = ""
-    @State private var isSignUp = false
     @State private var working = false
     @State private var error: String?
+    @State private var displayName = ""
+    @State private var showNamePrompt = false
 
     var body: some View {
         ZStack {
             PerchBackground()
-            VStack(spacing: Space.xl) {
-                Spacer()
-                Image(systemName: "envelope")
-                    .font(.system(size: 42, weight: .thin))
-                    .foregroundStyle(Palette.sage)
-                VStack(spacing: Space.s) {
-                    Text(isSignUp ? "Create your account" : "Sync across devices")
-                        .font(.system(size: 26, weight: .semibold))
-                        .foregroundStyle(Palette.ink)
-                    Text(isSignUp
-                         ? "Sign up to keep your posture history safe."
-                         : "Sign in to keep your posture history safe.")
-                        .font(.body)
-                        .foregroundStyle(Palette.inkSoft)
-                        .multilineTextAlignment(.center)
-                }
-
-                // Email field
-                TextField("you@email.com", text: $email)
-                    .textContentType(.emailAddress)
-                    .keyboardType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .padding(Space.l)
-                    .background(
-                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-                            .fill(Palette.surface)
-                    )
-
-                // Password field
-                SecureField("Password", text: $password)
-                    .textContentType(isSignUp ? .newPassword : .password)
-                    .padding(Space.l)
-                    .background(
-                        RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
-                            .fill(Palette.surface)
-                    )
-
-                if let error {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(Palette.amber)
-                        .multilineTextAlignment(.center)
-                }
-
-                PerchPrimaryButton(title: working ? "Please wait…" : (isSignUp ? "Sign up" : "Sign in")) {
-                    Task { await submit() }
-                }
-                .disabled(working || email.isEmpty || password.isEmpty)
-
-                // Toggle between sign-in and sign-up
-                Button {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        isSignUp.toggle()
-                        error = nil
-                    }
-                } label: {
-                    Text(isSignUp
-                         ? "Already have an account? Sign in"
-                         : "New here? Create an account")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.sage)
-                }
-
-                Spacer()
-                Spacer()
+            if showNamePrompt {
+                namePrompt
+            } else {
+                signInContent
             }
-            .padding(.horizontal, Space.xl)
         }
     }
 
-    private func submit() async {
-        working = true
-        error = nil
-        do {
-            if isSignUp {
-                try await auth.signUp(email: email, password: password)
-                // After sign-up, ensure the profile row exists.
-                try? await auth.ensureProfile()
-            } else {
-                try await auth.signIn(email: email, password: password)
+    // MARK: - Sign in
+
+    private var signInContent: some View {
+        VStack(spacing: Space.xl) {
+            Spacer()
+            Image(systemName: "person.2")
+                .font(.system(size: 48, weight: .thin))
+                .foregroundStyle(Palette.sage)
+            VStack(spacing: Space.s) {
+                Text("Sign in for Circles")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text("Sign in with Apple to create or join a posture circle. Your daily score and streak will be visible to circle members.")
+                    .font(.body)
+                    .foregroundStyle(Palette.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
             }
-            // Load Supabase data into the store.
-            await store.loadFromSupabase()
-            store.profile.email = auth.email
-            store.saveProfile()
-            dismiss()
-        } catch {
-            self.error = error.localizedDescription
+
+            if let error {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.amber)
+                    .multilineTextAlignment(.center)
+            }
+
+            if working {
+                ProgressView()
+                    .tint(Palette.sage)
+            } else {
+                SignInWithAppleButton(.signIn) { request in
+                    request.requestedScopes = [.fullName, .email]
+                } onCompletion: { result in
+                    handleAppleResult(result)
+                }
+                .signInWithAppleButtonStyle(.black)
+                .frame(height: 50)
+                .clipShape(.rect(cornerRadius: Radius.control))
+            }
+
+            Text("Your posture data stays on your phone until you sign in. Only your daily score and streak are shared with circles you join.")
+                .font(.caption)
+                .foregroundStyle(Palette.mist)
+                .multilineTextAlignment(.center)
+                .padding(.top, Space.s)
+
+            Spacer()
+            Spacer()
         }
-        working = false
+        .padding(.horizontal, Space.xl)
+    }
+
+    // MARK: - Display name prompt
+
+    private var namePrompt: some View {
+        VStack(spacing: Space.xl) {
+            Spacer()
+            Image(systemName: "person.text.rectangle")
+                .font(.system(size: 44, weight: .thin))
+                .foregroundStyle(Palette.sage)
+            VStack(spacing: Space.s) {
+                Text("Your display name")
+                    .font(.system(size: 26, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text("This is the name your circle-mates will see. You can change it later in Settings.")
+                    .font(.body)
+                    .foregroundStyle(Palette.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+            }
+
+            TextField("Your name", text: $displayName)
+                .textContentType(.name)
+                .padding(Space.l)
+                .background(
+                    RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+                        .fill(Palette.surface)
+                )
+
+            PerchPrimaryButton(title: "Continue") {
+                saveDisplayName()
+            }
+            .disabled(displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            PerchTextButton(title: "Skip for now", color: Palette.mist) {
+                finishSignIn()
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, Space.xl)
+    }
+
+    // MARK: - Actions
+
+    private func handleAppleResult(_ result: Result<ASAuthorization, Error>) {
+        Task {
+            do {
+                let authorization = try result.get()
+                guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                      let idTokenData = credential.identityToken,
+                      let idToken = String(data: idTokenData, encoding: .utf8) else {
+                    error = "Apple Sign In failed — no identity token received."
+                    return
+                }
+
+                working = true
+                error = nil
+
+                // Exchange the Apple ID token with Supabase (no redundant ASAuthorizationController).
+                try await auth.signInWithAppleToken(idToken)
+
+                // Ensure profile exists, then load Supabase data.
+                try? await auth.ensureProfile()
+                await store.loadFromSupabase()
+
+                // If profile has a display_name already, skip the prompt.
+                if store.profile.displayName?.isEmpty == false {
+                    finishSignIn()
+                    return
+                }
+
+                // Pre-fill from Apple's fullName (only provided on first sign-in).
+                let parts = [
+                    credential.fullName?.givenName,
+                    credential.fullName?.familyName
+                ].compactMap { $0 }.filter { !$0.isEmpty }
+                let appleName = parts.joined(separator: " ")
+
+                await MainActor.run {
+                    displayName = appleName.isEmpty ? "" : appleName
+                    showNamePrompt = true
+                }
+            } catch {
+                await MainActor.run {
+                    self.error = error.localizedDescription
+                }
+            }
+            await MainActor.run { working = false }
+        }
+    }
+
+    private func saveDisplayName() {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        store.profile.displayName = trimmed
+        store.saveProfile()
+        finishSignIn()
+    }
+
+    private func finishSignIn() {
+        dismiss()
     }
 }

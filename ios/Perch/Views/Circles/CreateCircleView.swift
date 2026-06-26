@@ -2,7 +2,8 @@
 //  CreateCircleView.swift
 //  Perch
 //
-//  Name a circle, generate an invite code, and share it with a friend.
+//  Name a circle, call the `create_circle(p_name)` RPC, and share the
+//  invite code with a friend.
 //
 
 import SwiftUI
@@ -13,6 +14,8 @@ struct CreateCircleView: View {
     @Environment(Database.self) private var db
 
     @State private var name = ""
+    @State private var working = false
+    @State private var error: String?
     @State private var createdCircle: CircleModel?
     @State private var showShare = false
 
@@ -61,10 +64,16 @@ struct CreateCircleView: View {
                         .fill(Palette.surface)
                 )
 
-            PerchPrimaryButton(title: "Create circle") {
-                createCircle()
+            if let error {
+                Text(error)
+                    .font(.footnote)
+                    .foregroundStyle(Palette.amber)
             }
-            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            PerchPrimaryButton(title: working ? "Creating…" : "Create circle") {
+                Task { await doCreate() }
+            }
+            .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || working)
 
             Spacer()
         }
@@ -110,7 +119,7 @@ struct CreateCircleView: View {
             }
             .sheet(isPresented: $showShare) {
                 ShareSheet(activityItems: [
-                    "Join my Perch circle \"\(circle.name)\"! Use invite code \(circle.inviteCode) or download Perch: https://perch.app"
+                    "Join my Perch circle \"\(circle.name)\"! Use invite code \(circle.inviteCode) or download Perch: https://getperch.app/join?code=\(circle.inviteCode)"
                 ])
                 .presentationDetents([.medium])
             }
@@ -124,17 +133,21 @@ struct CreateCircleView: View {
         .padding(.horizontal, Space.xl)
     }
 
-    private func createCircle() {
+    private func doCreate() async {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let uid = auth.userId else { return }
-        let circle = CircleModel.make(name: trimmed, ownerId: uid)
-        let membership = CircleMember.make(circleId: circle.id, userId: uid, role: .owner)
-        Task {
-            await db.saveCircle(circle)
-            await db.saveCircleMember(membership)
+        guard !trimmed.isEmpty else { return }
+        working = true
+        error = nil
+        do {
+            let circle = try await db.createCircle(name: trimmed)
             await MainActor.run {
                 withAnimation { createdCircle = circle }
             }
+        } catch let err {
+            await MainActor.run {
+                error = err.localizedDescription
+            }
         }
+        await MainActor.run { working = false }
     }
 }

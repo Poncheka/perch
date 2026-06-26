@@ -131,6 +131,7 @@ export type Database = {
         Row: {
           baseline_angle: number | null
           created_at: string | null
+          display_name: string | null
           email: string | null
           id: string
           mute_on_call: boolean | null
@@ -146,6 +147,7 @@ export type Database = {
         Insert: {
           baseline_angle?: number | null
           created_at?: string | null
+          display_name?: string | null
           email?: string | null
           id: string
           mute_on_call?: boolean | null
@@ -161,6 +163,7 @@ export type Database = {
         Update: {
           baseline_angle?: number | null
           created_at?: string | null
+          display_name?: string | null
           email?: string | null
           id?: string
           mute_on_call?: boolean | null

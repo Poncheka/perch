@@ -2,8 +2,9 @@
 //  JoinCircleView.swift
 //  Perch
 //
-//  Enter a 6-character invite code to join a friend's circle. Shows a clear
-//  one-line consent note when joining.
+//  Enter a 6-character invite code to join a friend's circle. Uses the
+//  `join_circle_by_code(p_code)` RPC. Shows a clear one-line consent note
+//  when joining.
 //
 
 import SwiftUI
@@ -75,6 +76,7 @@ struct JoinCircleView: View {
                 Text(error)
                     .font(.footnote)
                     .foregroundStyle(Palette.amber)
+                    .multilineTextAlignment(.center)
             }
 
             // Consent note.
@@ -91,7 +93,7 @@ struct JoinCircleView: View {
             .padding(.top, Space.s)
 
             PerchPrimaryButton(title: working ? "Joining…" : "Join circle") {
-                Task { await join() }
+                Task { await doJoin() }
             }
             .disabled(code.count < 6 || working)
 
@@ -113,7 +115,7 @@ struct JoinCircleView: View {
                     .font(.system(size: 26, weight: .semibold))
                     .foregroundStyle(Palette.ink)
                     .multilineTextAlignment(.center)
-                Text("Your circle is ready. You'll see each other's posture progress right on the Home screen.")
+                Text("Your circle is ready. You'll see each other's posture progress below.")
                     .font(.body)
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)
@@ -124,33 +126,19 @@ struct JoinCircleView: View {
         .padding(.horizontal, Space.xl)
     }
 
-    private func join() async {
+    private func doJoin() async {
         working = true
         error = nil
-
-        guard let uid = auth.userId else {
-            error = "Please sign in first."
-            working = false
-            return
+        do {
+            let circle = try await db.joinCircleByCode(code)
+            await MainActor.run {
+                withAnimation { joinedCircle = circle }
+            }
+        } catch let err {
+            await MainActor.run {
+                error = err.localizedDescription
+            }
         }
-
-        guard let circle = await db.findCircleByInviteCode(code) else {
-            error = "No circle found with that code. Check the spelling and try again."
-            working = false
-            return
-        }
-
-        // Check user isn't already a member.
-        let existing = await db.loadMembers(for: circle.id)
-        if existing.contains(where: { $0.userId == uid }) {
-            await MainActor.run { withAnimation { joinedCircle = circle } }
-            working = false
-            return
-        }
-
-        let membership = CircleMember.make(circleId: circle.id, userId: uid, role: .member)
-        await db.saveCircleMember(membership)
-        await MainActor.run { withAnimation { joinedCircle = circle } }
-        working = false
+        await MainActor.run { working = false }
     }
 }

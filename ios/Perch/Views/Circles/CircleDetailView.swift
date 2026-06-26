@@ -3,8 +3,9 @@
 //  Perch
 //
 //  Lists circle members with their posture stats: today's upright %, current
-//  streak, and 7-day average. Calm and supportive — no leaderboard, no red.
-//  The circle owner can delete the circle; other members can leave.
+//  streak, and 7-day average. Shows each member's display_name (from profiles).
+//  Calm and supportive — no leaderboard, no red.
+//  The circle owner can rename or delete the circle; any member can leave.
 //
 
 import SwiftUI
@@ -21,18 +22,41 @@ struct CircleDetailView: View {
     @State private var members: [CircleMember] = []
     @State private var summaries: [CircleMemberSummary] = []
     @State private var showDeleteConfirm = false
+    @State private var showRename = false
+    @State private var renameText = ""
+    @State private var currentCircle: CircleModel
 
-    private var isOwner: Bool { circle.ownerId == (auth.userId ?? "") }
+    private var isOwner: Bool { currentCircle.ownerId == (auth.userId ?? "") }
     private var currentUserId: String { auth.userId ?? "" }
+
+    init(circle: CircleModel) {
+        self.circle = circle
+        _currentCircle = State(initialValue: circle)
+        _renameText = State(initialValue: circle.name)
+    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: Space.l) {
                 // Header
                 VStack(spacing: Space.s) {
-                    Text(circle.name)
-                        .font(.system(size: 28, weight: .semibold))
-                        .foregroundStyle(Palette.ink)
+                    HStack(spacing: Space.s) {
+                        Text(currentCircle.name)
+                            .font(.system(size: 28, weight: .semibold))
+                            .foregroundStyle(Palette.ink)
+
+                        if isOwner {
+                            Button {
+                                renameText = currentCircle.name
+                                showRename = true
+                            } label: {
+                                Image(systemName: "pencil.circle")
+                                    .font(.system(size: 18, weight: .regular))
+                                    .foregroundStyle(Palette.mist)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
                     Text("Supportive, not competitive. No leaderboard here.")
                         .font(.footnote)
                         .foregroundStyle(Palette.mist)
@@ -40,10 +64,10 @@ struct CircleDetailView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, Space.l)
 
-                // Invite code (for the owner to share).
+                // Invite code section
                 VStack(spacing: Space.xs) {
                     Eyebrow(text: "Invite code")
-                    Text(circle.inviteCode)
+                    Text(currentCircle.inviteCode)
                         .font(.system(.title3, design: .monospaced))
                         .foregroundStyle(Palette.sage)
                         .tracking(4)
@@ -93,19 +117,26 @@ struct CircleDetailView: View {
         }
         .background(PerchBackground())
         .task { await loadSummaries() }
-        .alert("Delete \(circle.name)?", isPresented: $showDeleteConfirm) {
+        .alert("Delete \(currentCircle.name)?", isPresented: $showDeleteConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Delete", role: .destructive) { deleteCircle() }
         } message: {
             Text("All members will be removed and the circle will be permanently deleted.")
         }
+        .alert("Rename circle", isPresented: $showRename) {
+            TextField("Circle name", text: $renameText)
+            Button("Cancel", role: .cancel) {}
+            Button("Save") { renameCircle() }
+        } message: {
+            Text("Pick a new name for your circle.")
+        }
     }
 
-    // MARK: - Delete / Leave
+    // MARK: - Delete / Leave / Rename
 
     private func deleteCircle() {
         Task {
-            await db.deleteCircle(circle.id)
+            await db.deleteCircle(currentCircle.id)
             dismiss()
         }
     }
@@ -115,6 +146,17 @@ struct CircleDetailView: View {
         Task {
             await db.removeMember(membership.id)
             dismiss()
+        }
+    }
+
+    private func renameCircle() {
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        Task {
+            try? await db.renameCircle(currentCircle.id, to: trimmed)
+            await MainActor.run {
+                currentCircle.name = trimmed
+            }
         }
     }
 
@@ -169,7 +211,7 @@ struct CircleDetailView: View {
     // MARK: - Load member summaries
 
     private func loadSummaries() async {
-        let loaded = await db.loadMembers(for: circle.id)
+        let loaded = await db.loadMembers(for: currentCircle.id)
         members = loaded
         summaries = await withTaskGroup(of: CircleMemberSummary.self) { group in
             for member in loaded {
@@ -186,12 +228,16 @@ struct CircleDetailView: View {
         if member.userId == currentUserId {
             return CircleMemberSummary(
                 id: member.id,
-                name: "You",
+                name: store.profile.displayName ?? "You",
                 todayUprightPct: engine.uprightPct,
                 streak: streakForCurrentUser(),
                 weeklyAvg: weeklyAvgForCurrentUser()
             )
         }
+
+        // Load the fellow member's profile for their display_name.
+        let peerProfile = await db.loadProfile(userId: member.userId)
+        let displayName = peerProfile?.displayName ?? "Member"
 
         // Load the fellow member's posture days from Supabase.
         let peerDays = await db.loadDaysForUser(member.userId)
@@ -205,19 +251,13 @@ struct CircleDetailView: View {
             todayPct = 0
         }
 
-        // Compute streak from their days.
         streak = computeStreak(from: peerDays)
 
-        // Compute weekly average.
         let weekDays = peerDays.filter {
             let daysAgo = Calendar.current.dateComponents([.day], from: $0.date, to: Date()).day ?? 0
             return daysAgo >= 0 && daysAgo < 7 && $0.monitoredSeconds > 0
         }
         weekly = weekDays.isEmpty ? 0 : weekDays.map(\.uprightPct).reduce(0, +) / Double(weekDays.count)
-
-        let displayName = member.userId
-            .split(separator: "@").first
-            .map(String.init) ?? member.userId
 
         return CircleMemberSummary(
             id: member.id,

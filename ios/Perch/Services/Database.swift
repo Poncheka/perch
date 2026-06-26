@@ -6,6 +6,10 @@
 //  reads and writes flow to the live Postgres database. When signed out, falls
 //  back to UserDefaults so core posture tracking works without an account.
 //
+//  Circles use the Supabase RPCs `create_circle(p_name)` and
+//  `join_circle_by_code(p_code)` — never insert into circles/circle_members
+//  directly.
+//
 
 import Foundation
 import Supabase
@@ -149,7 +153,82 @@ final class Database {
         encode(days, forKey: Key.days)
     }
 
-    // MARK: - circles
+    // MARK: - circles (RPC-backed)
+
+    /// Creates a circle via the `create_circle(p_name)` RPC. Returns the
+    /// newly-created circle row. The RPC also inserts the caller as the owner
+    /// in `circle_members`.
+    func createCircle(name: String) async throws -> CircleModel {
+        struct RPCResponse: Decodable {
+            let id: String
+            let name: String
+            let owner_id: String
+            let invite_code: String
+            let created_at: String?
+        }
+        let result: RPCResponse = try await supabase.client
+            .rpc("create_circle", params: ["p_name": name])
+            .execute()
+            .value
+        let circle = CircleModel(
+            id: result.id,
+            name: result.name,
+            ownerId: result.owner_id,
+            inviteCode: result.invite_code,
+            createdAt: parseISO(result.created_at) ?? Date()
+        )
+        // Cache locally.
+        var circles = decode([CircleModel].self, forKey: Key.circles) ?? []
+        circles.append(circle)
+        encode(circles, forKey: Key.circles)
+        return circle
+    }
+
+    /// Joins a circle via the `join_circle_by_code(p_code)` RPC. Returns the
+    /// circle row on success, or throws on failure (invalid code, already a
+    /// member, etc.). The RPC also inserts the caller into `circle_members`.
+    func joinCircleByCode(_ code: String) async throws -> CircleModel {
+        struct RPCResponse: Decodable {
+            let id: String
+            let name: String
+            let owner_id: String
+            let invite_code: String
+            let created_at: String?
+        }
+        let result: RPCResponse = try await supabase.client
+            .rpc("join_circle_by_code", params: ["p_code": code.uppercased()])
+            .execute()
+            .value
+        let circle = CircleModel(
+            id: result.id,
+            name: result.name,
+            ownerId: result.owner_id,
+            inviteCode: result.invite_code,
+            createdAt: parseISO(result.created_at) ?? Date()
+        )
+        // Cache locally.
+        var circles = decode([CircleModel].self, forKey: Key.circles) ?? []
+        if !circles.contains(where: { $0.id == circle.id }) {
+            circles.append(circle)
+        }
+        encode(circles, forKey: Key.circles)
+        return circle
+    }
+
+    /// Renames a circle (owner only — enforced by RLS).
+    func renameCircle(_ circleId: String, to name: String) async throws {
+        try await supabase.client
+            .from("circles")
+            .update(["name": name])
+            .eq("id", value: circleId)
+            .execute()
+        // Update local cache.
+        var circles = decode([CircleModel].self, forKey: Key.circles) ?? []
+        if let idx = circles.firstIndex(where: { $0.id == circleId }) {
+            circles[idx].name = name
+            encode(circles, forKey: Key.circles)
+        }
+    }
 
     func loadCircles() async -> [CircleModel] {
         if usesRemote {
@@ -161,26 +240,6 @@ final class Database {
                 .value) ?? []
         }
         return decode([CircleModel].self, forKey: Key.circles) ?? []
-    }
-
-    func saveCircle(_ circle: CircleModel) async {
-        if usesRemote {
-            do {
-                try await supabase.client
-                    .from("circles")
-                    .upsert(CircleUpsert(circle))
-                    .execute()
-            } catch {
-                print("Failed to save circle: \(error)")
-            }
-        }
-        var circles = decode([CircleModel].self, forKey: Key.circles) ?? []
-        if let idx = circles.firstIndex(where: { $0.id == circle.id }) {
-            circles[idx] = circle
-        } else {
-            circles.append(circle)
-        }
-        encode(circles, forKey: Key.circles)
     }
 
     func deleteCircle(_ id: String) async {
@@ -203,18 +262,11 @@ final class Database {
         encode(members, forKey: Key.circleMembers)
     }
 
-    func findCircleByInviteCode(_ code: String) async -> CircleModel? {
-        if usesRemote {
-            return (try? await supabase.client
-                .from("circles")
-                .select()
-                .eq("invite_code", value: code.uppercased())
-                .single()
-                .execute()
-                .value)
-        }
-        return decode([CircleModel].self, forKey: Key.circles)?
-            .first { $0.inviteCode.uppercased() == code.uppercased() }
+    func circlesForUser(_ userId: String) async -> [CircleModel] {
+        let members = await loadCircleMembers()
+        let memberIds = Set(members.filter { $0.userId == userId }.map(\.circleId))
+        let allCircles = await loadCircles()
+        return allCircles.filter { memberIds.contains($0.id) }
     }
 
     // MARK: - circle_members
@@ -243,26 +295,6 @@ final class Database {
             .filter { $0.circleId == circleId }
     }
 
-    func saveCircleMember(_ member: CircleMember) async {
-        if usesRemote {
-            do {
-                try await supabase.client
-                    .from("circle_members")
-                    .upsert(CircleMemberUpsert(member))
-                    .execute()
-            } catch {
-                print("Failed to save circle member: \(error)")
-            }
-        }
-        var members = decode([CircleMember].self, forKey: Key.circleMembers) ?? []
-        if let idx = members.firstIndex(where: { $0.id == member.id }) {
-            members[idx] = member
-        } else {
-            members.append(member)
-        }
-        encode(members, forKey: Key.circleMembers)
-    }
-
     func removeMember(_ memberId: String) async {
         if usesRemote {
             do {
@@ -280,13 +312,6 @@ final class Database {
         encode(members, forKey: Key.circleMembers)
     }
 
-    func circlesForUser(_ userId: String) async -> [CircleModel] {
-        let members = await loadCircleMembers()
-        let memberIds = Set(members.filter { $0.userId == userId }.map(\.circleId))
-        let allCircles = await loadCircles()
-        return allCircles.filter { memberIds.contains($0.id) }
-    }
-
     /// Fetch posture stats for a specific user (used by circles for fellow member data).
     func loadDaysForUser(_ userId: String) async -> [PostureDay] {
         if usesRemote {
@@ -302,6 +327,24 @@ final class Database {
             .filter { $0.userId == userId }
     }
 
+    /// Load a single profile by user ID (for showing display_name in circles).
+    func loadProfile(userId: String) async -> Profile? {
+        if usesRemote {
+            return (try? await supabase.client
+                .from("profiles")
+                .select()
+                .eq("id", value: userId)
+                .single()
+                .execute()
+                .value)
+        }
+        // Local fallback: use own profile if id matches.
+        if let p = decode(Profile.self, forKey: Key.profile), p.id == userId {
+            return p
+        }
+        return nil
+    }
+
     // MARK: - Reset
 
     func wipe() {
@@ -309,6 +352,18 @@ final class Database {
          Key.calibrated, Key.circles, Key.circleMembers].forEach {
             defaults.removeObject(forKey: $0)
         }
+    }
+
+    // MARK: - Helpers
+
+    private func parseISO(_ string: String?) -> Date? {
+        guard let s = string else { return nil }
+        let fmt = ISO8601DateFormatter()
+        fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fmt.date(from: s) ?? {
+            let fallback = ISO8601DateFormatter()
+            return fallback.date(from: s)
+        }()
     }
 
     // MARK: - Codable helpers
@@ -329,6 +384,7 @@ final class Database {
 nonisolated struct ProfileUpsertFull: Encodable, Sendable {
     let id: String
     let email: String?
+    let display_name: String?
     let baseline_angle: Double
     let sensitivity: Double
     let nudge_style: String
@@ -343,6 +399,7 @@ nonisolated struct ProfileUpsertFull: Encodable, Sendable {
     init(_ p: Profile) {
         self.id = p.id
         self.email = p.email
+        self.display_name = p.displayName
         self.baseline_angle = p.baselineAngle
         self.sensitivity = p.sensitivity
         self.nudge_style = p.nudgeStyle.rawValue
@@ -392,30 +449,4 @@ nonisolated struct PostureDayUpsert: Encodable, Sendable {
     }
 }
 
-nonisolated struct CircleUpsert: Encodable, Sendable {
-    let id: String
-    let name: String
-    let owner_id: String
-    let invite_code: String
-
-    init(_ c: CircleModel) {
-        self.id = c.id
-        self.name = c.name
-        self.owner_id = c.ownerId
-        self.invite_code = c.inviteCode
-    }
-}
-
-nonisolated struct CircleMemberUpsert: Encodable, Sendable {
-    let id: String
-    let circle_id: String
-    let user_id: String
-    let role: String
-
-    init(_ m: CircleMember) {
-        self.id = m.id
-        self.circle_id = m.circleId
-        self.user_id = m.userId
-        self.role = m.role.rawValue
-    }
-}
+// Remove legacy direct-insert helpers for circles — use RPCs instead.

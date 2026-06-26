@@ -44,6 +44,8 @@ nonisolated struct Clock: Codable, Equatable, Sendable {
 nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
     var id: String
     var email: String?
+    /// The name fellow circle members see. Set once after first sign-in.
+    var displayName: String?
     /// Calibrated baseline forward-tilt captured during onboarding (degrees).
     var baselineAngle: Double
     /// 0...1 — higher means more forgiving (larger slouch threshold).
@@ -58,6 +60,7 @@ nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
     enum CodingKeys: String, CodingKey {
         case id
         case email
+        case displayName = "display_name"
         case baselineAngle = "baseline_angle"
         case sensitivity
         case nudgeStyle = "nudge_style"
@@ -70,11 +73,13 @@ nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
         case createdAt = "created_at"
     }
 
-    init(id: String, email: String?, baselineAngle: Double, sensitivity: Double,
-         nudgeStyle: NudgeStyle, quietStart: Clock, quietEnd: Clock,
-         muteOnCall: Bool, muteWhileMoving: Bool, createdAt: Date) {
+    init(id: String, email: String?, displayName: String?, baselineAngle: Double,
+         sensitivity: Double, nudgeStyle: NudgeStyle, quietStart: Clock,
+         quietEnd: Clock, muteOnCall: Bool, muteWhileMoving: Bool,
+         createdAt: Date) {
         self.id = id
         self.email = email
+        self.displayName = displayName
         self.baselineAngle = baselineAngle
         self.sensitivity = sensitivity
         self.nudgeStyle = nudgeStyle
@@ -89,6 +94,7 @@ nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         email = try c.decodeIfPresent(String.self, forKey: .email)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
         baselineAngle = try c.decodeIfPresent(Double.self, forKey: .baselineAngle) ?? 0
         sensitivity = try c.decodeIfPresent(Double.self, forKey: .sensitivity) ?? 0.5
         nudgeStyle = (try? c.decodeIfPresent(NudgeStyle.self, forKey: .nudgeStyle)) ?? .haptic
@@ -107,6 +113,7 @@ nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encodeIfPresent(email, forKey: .email)
+        try c.encodeIfPresent(displayName, forKey: .displayName)
         try c.encode(baselineAngle, forKey: .baselineAngle)
         try c.encode(sensitivity, forKey: .sensitivity)
         try c.encode(nudgeStyle, forKey: .nudgeStyle)
@@ -123,6 +130,7 @@ nonisolated struct Profile: Codable, Equatable, Identifiable, Sendable {
         Profile(
             id: id,
             email: nil,
+            displayName: nil,
             baselineAngle: 0,
             sensitivity: 0.5,
             nudgeStyle: .haptic,
