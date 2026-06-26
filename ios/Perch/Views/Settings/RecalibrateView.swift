@@ -3,7 +3,8 @@
 //  Perch
 //
 //  Re-runs the calibration step from Settings using the hold-to-capture
-//  interaction: a bubble-level dot, steady-hold progress arc, and success haptic.
+//  interaction: a bubble-level dot, steady-hold progress arc, and success
+//  haptic. Matches the first-run calibration flow on Home.
 //
 
 import SwiftUI

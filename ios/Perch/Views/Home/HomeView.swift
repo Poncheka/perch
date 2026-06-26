@@ -3,13 +3,19 @@
 //  Perch
 //
 //  The main "Today" screen. Almost empty by design: a single breathing status
-//  ring, one warm status line, and a quiet snooze button. The "monitoring"
-//  state shifts the surface to deep navy for an Oura-like focus moment.
+//  ring, one warm status line, and a quiet snooze button. All states use the
+//  warm paper background — live state is conveyed through the ring color and
+//  status line only.
+//
+//  On first launch after onboarding, a calm calibration overlay appears:
+//  "Sit the way you'd like to sit all day" with a hold-steady capture.
 //
 
 import SwiftUI
 
 struct HomeView: View {
+    @Binding var showFirstCalibration: Bool
+
     @Environment(PerchStore.self) private var store
     @Environment(PostureSource.self) private var source
     @Environment(PostureEngine.self) private var engine
@@ -21,13 +27,15 @@ struct HomeView: View {
     @State private var tapCount = 0
     @State private var tapResetTask: Task<Void, Never>?
 
+    /// Hold-steady calibration state for first-run (and optional re-trigger).
+    @State private var calibrationPhase: CapturePhase = .ready
+
     private var slouchProgress: Double {
         let t = store.profile.slouchThreshold
         guard t > 0 else { return 0 }
         return min(1, max(0, source.neckAngle / t))
     }
 
-    /// The monitoredSeconds threshold for showing a real value (150 s).
     private let warmupThreshold: Double = 150
     private var isWarmingUp: Bool {
         engine.state.isMonitoring && engine.monitoredSeconds < warmupThreshold
@@ -36,12 +44,110 @@ struct HomeView: View {
     var body: some View {
         ZStack {
             PerchBackground()
+
+            if showFirstCalibration {
+                calibrationOverlay
+                    .transition(.opacity)
+            }
+
             content
         }
         .sheet(isPresented: $showDevPanel) { DevPanelView() }
         .sheet(isPresented: $showHistory) { HistoryView() }
         .sheet(isPresented: $showSettings) { SettingsView() }
         .sheet(isPresented: $showCircles) { CirclesView() }
+    }
+
+    // MARK: - Calibration overlay (first-run)
+
+    private var calibrationOverlay: some View {
+        ZStack {
+            PerchBackground()
+
+            VStack(spacing: Space.xxl) {
+                Spacer()
+
+                VStack(spacing: Space.l) {
+                    Image(systemName: calibrationIcon)
+                        .font(.system(size: 46, weight: .thin))
+                        .foregroundStyle(Palette.sage)
+                        .frame(height: 64)
+
+                    Text(calibrationTitle)
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(Palette.ink)
+                        .multilineTextAlignment(.center)
+
+                    Text(calibrationSubtitle)
+                        .font(.system(.body, weight: .regular))
+                        .foregroundStyle(Palette.inkSoft)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                }
+
+                CalibrationHoldView(
+                    liveAngle: source.liveRawTilt,
+                    phase: $calibrationPhase,
+                    onCaptured: {
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        source.calibrate()
+                        store.setBaseline(0)
+                        store.completeCalibration()
+                        Task {
+                            try? await Task.sleep(for: .seconds(1.2))
+                            withAnimation(.easeInOut(duration: 0.6)) {
+                                showFirstCalibration = false
+                            }
+                        }
+                    }
+                )
+                .frame(width: 200, height: 200)
+
+                if calibrationPhase != .captured {
+                    PerchTextButton(title: "Skip for now", color: Palette.mist) {
+                        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+                        source.calibrate()
+                        store.setBaseline(0)
+                        store.completeCalibration()
+                        withAnimation(.easeInOut(duration: 0.6)) {
+                            showFirstCalibration = false
+                        }
+                    }
+                    .padding(.top, Space.m)
+                }
+
+                Spacer()
+            }
+            .padding(.horizontal, Space.xl)
+        }
+        .zIndex(10)
+    }
+
+    private var calibrationIcon: String {
+        switch calibrationPhase {
+        case .ready: return "figure.seated.side"
+        case .capturing: return "scope"
+        case .captured: return "checkmark.circle"
+        }
+    }
+
+    private var calibrationTitle: String {
+        switch calibrationPhase {
+        case .ready: return "Sit the way you'd\nlike to sit all day."
+        case .capturing: return "Hold steady…"
+        case .captured: return "Perfectly set."
+        }
+    }
+
+    private var calibrationSubtitle: String {
+        switch calibrationPhase {
+        case .ready:
+            return "Get comfortable and upright. Then hold your head still — the ring fills when you're steady."
+        case .capturing:
+            return "Almost there. Keep your head still just a moment longer."
+        case .captured:
+            return "That's your good posture. Perch will gently let you know whenever you drift away from it."
+        }
     }
 
     // MARK: - Content
@@ -94,8 +200,6 @@ struct HomeView: View {
             circlesCard
         }
     }
-
-
 
     /// Invisible triple-tap target over the numeral to open the dev panel.
     private var ringNumberTapTarget: some View {
@@ -188,14 +292,11 @@ struct HomeView: View {
             : "Create or join a supportive posture circle."
     }
 
-    /// Number of circles the signed-in user belongs to.
     private var circlesCount: Int {
         guard let email = auth.email else { return 0 }
         let db = Database()
         return db.circlesForUser(email).count
     }
-
-    // MARK: - Environment helpers
 
     @Environment(AuthService.self) private var auth
 

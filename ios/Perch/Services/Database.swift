@@ -21,6 +21,7 @@ final class Database {
         static let subscription = "perch.subscription"
         static let days = "perch.posture_days"
         static let onboarded = "perch.hasOnboarded"
+        static let calibrated = "perch.hasCalibrated"
         static let circles = "perch.circles"
         static let circleMembers = "perch.circle_members"
     }
@@ -35,6 +36,12 @@ final class Database {
     var hasOnboarded: Bool {
         get { defaults.bool(forKey: Key.onboarded) }
         set { defaults.set(newValue, forKey: Key.onboarded) }
+    }
+
+    /// Whether the user has completed the first-run calibration (home screen).
+    var hasCalibrated: Bool {
+        get { defaults.bool(forKey: Key.calibrated) }
+        set { defaults.set(newValue, forKey: Key.calibrated) }
     }
 
     // MARK: - profiles
@@ -85,7 +92,7 @@ final class Database {
     /// Reset everything (used on sign out for a clean demo).
     func wipe() {
         [Key.profile, Key.subscription, Key.days, Key.onboarded,
-         Key.circles, Key.circleMembers].forEach {
+         Key.calibrated, Key.circles, Key.circleMembers].forEach {
             defaults.removeObject(forKey: $0)
         }
     }

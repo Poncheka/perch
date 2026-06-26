@@ -74,6 +74,13 @@ final class PostureSource: NSObject {
     /// Read from AVAudioSession. Never gated on — cosmetic only.
     private(set) var audioRouteName: String?
 
+    /// Whether any Bluetooth audio device (AirPods, Beats, etc.) is currently
+    /// connected. Derived from the audio route — used by the onboarding
+    /// "Connect your AirPods" step. Does NOT require motion permission.
+    var isAirpodsConnected: Bool {
+        audioRouteName != nil
+    }
+
     // MARK: - Developer overrides (hidden Dev Panel)
 
     /// When true, `neckAngle` is held at `manualAngle` instead of live data.

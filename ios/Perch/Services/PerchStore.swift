@@ -16,6 +16,7 @@ final class PerchStore {
     var subscription: Subscription
     private(set) var days: [PostureDay]
     var hasOnboarded: Bool
+    var hasCalibrated: Bool
 
     private let db: Database
 
@@ -27,6 +28,7 @@ final class PerchStore {
         self.subscription = db.loadSubscription() ?? Subscription.makeInactive(userId: loadedProfile.id)
         self.days = db.loadDays()
         self.hasOnboarded = db.hasOnboarded
+        self.hasCalibrated = db.hasCalibrated
     }
 
     // MARK: - Profile / settings
@@ -60,7 +62,15 @@ final class PerchStore {
     /// Reset the onboarding flag so the onboarding flow replays (Dev Panel use).
     func resetOnboarding() {
         hasOnboarded = false
+        hasCalibrated = false
         db.hasOnboarded = false
+        db.hasCalibrated = false
+    }
+
+    /// Mark first-run calibration as complete.
+    func completeCalibration() {
+        hasCalibrated = true
+        db.hasCalibrated = true
     }
 
     // MARK: - Posture days
@@ -102,5 +112,6 @@ final class PerchStore {
         subscription = Subscription.makeInactive(userId: fresh.id)
         days = []
         hasOnboarded = false
+        hasCalibrated = false
     }
 }

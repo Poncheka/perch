@@ -5,7 +5,8 @@
 //  Hidden developer panel (triple-tap the Home numeral). Lets us force every
 //  state by hand: a manual neckAngle slider, an AirPods toggle, simulated
 //  call / movement context, source mode switch (Real vs Simulated), and a
-//  "Replay onboarding" button.
+//  "Replay onboarding" button (resets onboarding + calibration so the full
+//  flow replays).
 //
 
 import SwiftUI
@@ -79,7 +80,7 @@ struct DevPanelView: View {
                 } header: {
                     Text("Development")
                 } footer: {
-                    Text("Resets the onboarding flag and relaunches the onboarding flow. Use this to review onboarding screens during development.")
+                    Text("Resets onboarding AND calibration flags so the full flow replays. Use this to review onboarding and first-run calibration during development.")
                 }
             }
             .navigationTitle("Developer")

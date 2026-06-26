@@ -2,18 +2,16 @@
 //  OnboardingView.swift
 //  Perch
 //
-//  First-launch flow: ~6 short, swipeable, skippable steps that end at the
-//  paywall. Warm, brief, reassuring copy throughout.
+//  Four-page onboarding flow, then paywall, then first-run calibration.
 //
-//  Steps:
-//    0  Welcome
-//    1  How it works
-//    2  Motion & Fitness primer + real compatibility check
-//    3  Notifications primer + authorization
-//    4  Social proof / testimonials (placeholder)
-//    5  Calibrate (hold-to-capture, skippable)
+//  Pages:
+//    0  Intro — animated figure + "Fix your posture with AirPods"
+//    1  Connect your AirPods — detect via audio route
+//    2  Allow Motion & Fitness — real CMHeadphoneMotionManager permission + check
+//    3  Allow notifications
 //
-//  The paywall fires from RootView once onboarding completes.
+//  No system prompts fire until the user reaches the relevant page. On finish,
+//  mark onboarding complete → RootView presents the paywall.
 //
 
 import SwiftUI
@@ -27,36 +25,25 @@ struct OnboardingView: View {
     @Environment(NudgeService.self) private var nudge
 
     @State private var step = 0
-
-    private let lastStep = 5
+    private let lastStep = 3
 
     var body: some View {
         ZStack {
             PerchBackground()
             VStack(spacing: 0) {
                 header
-                TabView(selection: $step) {
-                    WelcomeStep().tag(0)
-                    HowItWorksStep().tag(1)
-                    MotionStep(onContinue: advance).tag(2)
-                    NotificationsStep(onContinue: advance).tag(3)
-                    SocialProofStep().tag(4)
-                    CalibrateStep(onCalibrate: calibrateAndFinish, onSkip: skipCalibrate).tag(5)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .animation(.easeInOut, value: step)
-
+                pageContent
                 footer
             }
         }
     }
 
-    // MARK: - Header
+    // MARK: - Header (dots + skip)
 
     private var header: some View {
         HStack {
             if step < lastStep {
-                Button("Skip") { skipToLast() }
+                Button("Skip") { skipToEnd() }
                     .font(.system(.subheadline, weight: .medium))
                     .foregroundStyle(Palette.mist)
                     .buttonStyle(.plain)
@@ -72,41 +59,41 @@ struct OnboardingView: View {
         .padding(.top, Space.l)
     }
 
+    // MARK: - Page content
+
+    @ViewBuilder
+    private var pageContent: some View {
+        switch step {
+        case 0: IntroPage(onNext: advance)
+        case 1: ConnectAirPodsPage(onNext: advance)
+        case 2: MotionPage(onNext: advance)
+        case 3: NotificationsPage(onFinish: finishOnboarding)
+        default: EmptyView()
+        }
+    }
+
     // MARK: - Footer
 
     @ViewBuilder
     private var footer: some View {
-        VStack {
-            // Show a generic Continue button for steps without their own action button.
-            if step < 2 || step == 4 {
-                PerchPrimaryButton(title: "Continue") { advance() }
-            }
-        }
-        .padding(.horizontal, Space.xl)
-        .padding(.bottom, Space.xl)
+        // Each page has its own buttons, but for pages that don't
+        // (pages 2 and 3 handle their own actions), show nothing extra.
+        Color.clear.frame(height: 20)
     }
 
     // MARK: - Navigation
 
     private func advance() {
-        withAnimation { step = min(step + 1, lastStep) }
+        withAnimation(.easeInOut(duration: 0.4)) {
+            step = min(step + 1, lastStep)
+        }
     }
 
-    private func skipToLast() {
-        withAnimation { step = lastStep }
+    private func skipToEnd() {
+        withAnimation(.easeInOut(duration: 0.4)) { step = lastStep }
     }
 
-    private func calibrateAndFinish() {
-        source.calibrate()
-        store.setBaseline(0)
-        store.completeOnboarding()
-    }
-
-    /// Skip calibration entirely — captures the current angle as-is and finishes.
-    private func skipCalibrate() {
-        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
-        source.calibrate()
-        store.setBaseline(0)
+    private func finishOnboarding() {
         store.completeOnboarding()
     }
 }
@@ -131,11 +118,11 @@ private struct DotsIndicator: View {
 
 // MARK: - Shared step scaffold
 
-private struct StepScaffold<Extra: View>: View {
+private struct StepScaffold<Content: View>: View {
     let icon: String
     let title: String
     let subtitle: String
-    @ViewBuilder var extra: Extra
+    @ViewBuilder var content: Content
 
     var body: some View {
         VStack(spacing: Space.xl) {
@@ -155,7 +142,7 @@ private struct StepScaffold<Extra: View>: View {
                     .multilineTextAlignment(.center)
                     .lineSpacing(4)
             }
-            extra
+            content
             Spacer()
             Spacer()
         }
@@ -163,18 +150,17 @@ private struct StepScaffold<Extra: View>: View {
     }
 }
 
-// MARK: - Step 0: Animated Welcome
+// MARK: - Page 0: Intro
 
-private struct WelcomeStep: View {
-    /// 0…1 phase that drives both the figure rotation and text capitalization.
-    /// Loops gently: slouch → upright → slouch.
+private struct IntroPage: View {
+    let onNext: () -> Void
+
     @State private var phase: Double = 0
 
     var body: some View {
         VStack(spacing: Space.xl) {
             Spacer()
 
-            // Animated figure: rotates from slouch (~-22°) to upright (0°).
             Image(systemName: "figure.seated.side")
                 .font(.system(size: 64, weight: .thin))
                 .foregroundStyle(Palette.sage)
@@ -182,12 +168,12 @@ private struct WelcomeStep: View {
                 .frame(height: 90)
 
             VStack(spacing: Space.l) {
-                AnimatedPostureTitle(phase: phase)
+                AnimatedHeroTitle(phase: phase)
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Palette.ink)
                     .multilineTextAlignment(.center)
 
-                Text("Perch uses your AirPods to gently keep you upright. No timers. No fuss.")
+                Text("Get a gentle nudge whenever your posture slumps.")
                     .font(.system(.body, weight: .regular))
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)
@@ -196,7 +182,8 @@ private struct WelcomeStep: View {
             }
 
             Spacer()
-            Spacer()
+
+            PerchPrimaryButton(title: "Get started", action: onNext)
         }
         .padding(.horizontal, Space.xl)
         .onAppear {
@@ -207,190 +194,226 @@ private struct WelcomeStep: View {
     }
 }
 
-/// Progressively capitalizes "posture" → "POSTURE" one letter at a time,
-/// left to right, driven by `phase` (0…1). Timed to finish as the figure
+/// Progressively capitalizes "posture" → "POSTURE" left to right,
+/// driven by `phase` (0…1). Timed to finish as the seated figure
 /// reaches upright.
-private struct AnimatedPostureTitle: View {
+private struct AnimatedHeroTitle: View {
     let phase: Double
-
     private let target = "posture"
 
     var body: some View {
         let count = capitalizedCount
         let prefix = String(target.prefix(count))
         let suffix = String(target.suffix(target.count - count))
-
-        return Text("Better \(prefix)\(suffix),\non autopilot.")
+        return Text("Fix your \(prefix)\(suffix)\nwith AirPods")
     }
 
-    /// How many letters of "posture" should be uppercase right now.
     private var capitalizedCount: Int {
         min(target.count, max(0, Int((phase * Double(target.count)).rounded(.up))))
     }
 }
 
-private struct HowItWorksStep: View {
-    var body: some View {
-        StepScaffold(
-            icon: "airpods",
-            title: "Quietly watching\nyour back.",
-            subtitle: "Pop your AirPods in and Perch quietly watches your posture in the background. Slouch too long, and you'll feel a gentle nudge. That's it."
-        ) { EmptyView() }
-    }
-}
+// MARK: - Page 1: Connect your AirPods
 
-// MARK: - Step 2: Motion & Fitness primer + real compatibility check
-
-private struct MotionStep: View {
-    let onContinue: () -> Void
-
+private struct ConnectAirPodsPage: View {
+    let onNext: () -> Void
     @Environment(PostureSource.self) private var source
 
-    enum Phase { case priming, checking, supported, deniedOrUnsupported }
-    @State private var phase: Phase = .priming
-    @State private var showDesignPreview = false
-
-    private let checkTimeout: Double = 2.0
-
     var body: some View {
-        ZStack {
-            if phase == .deniedOrUnsupported {
-                deniedRecovery
-            } else {
-                mainContent
-            }
-        }
-    }
+        let connected = source.isAirpodsConnected
+        let route = source.audioRouteName
 
-    // MARK: - Main content (priming / checking / supported)
+        VStack(spacing: Space.xl) {
+            Spacer()
 
-    private var mainContent: some View {
-        StepScaffold(
-            icon: iconName,
-            title: titleText,
-            subtitle: subtitleText
-        ) {
-            VStack(spacing: Space.m) {
-                if phase == .priming {
-                    PerchPrimaryButton(title: "Allow access") {
-                        startCheck()
+            Image(systemName: connected ? "airpods" : "airpods.gen3")
+                .font(.system(size: 46, weight: .thin))
+                .foregroundStyle(connected ? Palette.sage : Palette.mist)
+                .frame(height: 64)
+
+            VStack(spacing: Space.l) {
+                Text("Connect your AirPods")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.center)
+
+                if connected {
+                    VStack(spacing: Space.s) {
+                        if let route {
+                            Text("Detected: \(route)")
+                                .font(.system(.body, weight: .medium))
+                                .foregroundStyle(Palette.sage)
+                        }
+                        Text("Your AirPods are connected — you're ready to go.")
+                            .font(.system(.body, weight: .regular))
+                            .foregroundStyle(Palette.inkSoft)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(4)
                     }
-                } else if phase == .checking {
-                    ProgressView()
-                        .tint(Palette.sage)
-                        .padding(.top, Space.s)
-                }
+                } else {
+                    Text("Pop in your AirPods to continue")
+                        .font(.system(.body, weight: .regular))
+                        .foregroundStyle(Palette.inkSoft)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
 
-                // Audio route label (cosmetic).
-                if let route = source.audioRouteName, phase == .supported {
-                    Text("Detected: \(route)")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.mist)
-                        .padding(.top, Space.s)
-                }
-
-                // Design preview toggle.
-                if phase != .checking || showDesignPreview {
-                    Button {
-                        withAnimation { showDesignPreview.toggle() }
-                    } label: {
-                        Text(showDesignPreview
-                             ? "Hide design preview"
-                             : previewLabel)
-                            .font(.footnote)
+                    HStack(spacing: Space.s) {
+                        ProgressView()
+                            .tint(Palette.sage)
+                        Text("Waiting for AirPods…")
+                            .font(.system(.subheadline, weight: .regular))
                             .foregroundStyle(Palette.mist)
                     }
-                    .buttonStyle(.plain)
                     .padding(.top, Space.s)
                 }
             }
-            .padding(.top, Space.l)
-        }
-    }
 
-    // MARK: - Denied / unsupported recovery
+            Spacer()
 
-    private var deniedRecovery: some View {
-        StepScaffold(
-            icon: "gearshape",
-            title: "Motion access\nis needed.",
-            subtitle: "Perch uses Motion & Fitness to sense your posture. Enable it in Settings, or use different AirPods that support motion sensing."
-        ) {
             VStack(spacing: Space.m) {
-                PerchPrimaryButton(title: "Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
+                PerchPrimaryButton(
+                    title: "Continue",
+                    fill: connected ? Palette.sage : Palette.hairline,
+                    foreground: connected ? Palette.cream : Palette.mist
+                ) {
+                    onNext()
+                }
+                .disabled(!connected)
+
+                if !connected {
+                    PerchTextButton(title: "Open Bluetooth Settings", color: Palette.mist) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
                     }
                 }
-                .padding(.top, Space.l)
-
-                PerchTextButton(title: "Continue anyway", color: Palette.mist) {
-                    onContinue()
-                }
-
-                // Design preview toggle.
-                Button {
-                    withAnimation { showDesignPreview.toggle() }
-                } label: {
-                    Text(showDesignPreview ? "Hide design preview" : "Preview supported state")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.mist)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, Space.s)
             }
-            .padding(.horizontal, Space.l)
         }
+        .padding(.horizontal, Space.xl)
+        .animation(.easeInOut(duration: 0.4), value: connected)
+    }
+}
+
+// MARK: - Page 2: Allow Motion & Fitness + compatibility
+
+private struct MotionPage: View {
+    let onNext: () -> Void
+    @Environment(PostureSource.self) private var source
+
+    enum Phase: Equatable {
+        case priming
+        case checking
+        case supported
+        case unsupported
+        case denied
     }
 
-    // MARK: - Icon / title / subtitle helpers
+    @State private var phase: Phase = .priming
+    private let checkTimeout: Double = 2.0
+
+    var body: some View {
+        VStack(spacing: Space.xl) {
+            Spacer()
+
+            Image(systemName: iconName)
+                .font(.system(size: 46, weight: .thin))
+                .foregroundStyle(iconColor)
+                .frame(height: 64)
+
+            VStack(spacing: Space.l) {
+                Text(titleText)
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.center)
+
+                Text(subtitleText)
+                    .font(.system(.body, weight: .regular))
+                    .foregroundStyle(Palette.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+            }
+
+            Spacer()
+
+            VStack(spacing: Space.m) {
+                switch phase {
+                case .priming:
+                    PerchPrimaryButton(title: "Allow access") { startCheck() }
+                case .checking:
+                    ProgressView()
+                        .tint(Palette.sage)
+                        .padding(.top, Space.s)
+                case .supported:
+                    PerchPrimaryButton(title: "Continue") { onNext() }
+                case .unsupported:
+                    VStack(spacing: Space.m) {
+                        PerchTextButton(title: "Try other AirPods", color: Palette.mist) {
+                            // Go back to page 1 — parent handles navigation.
+                            // For now, proceed anyway so user isn't hard-blocked.
+                        }
+                        PerchTextButton(title: "Continue anyway", color: Palette.sage) {
+                            onNext()
+                        }
+                    }
+                case .denied:
+                    VStack(spacing: Space.m) {
+                        PerchPrimaryButton(title: "Open Settings") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                UIApplication.shared.open(url)
+                            }
+                        }
+                        PerchTextButton(title: "Continue anyway", color: Palette.mist) {
+                            onNext()
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, Space.xl)
+    }
+
+    // MARK: - Derived properties
 
     private var iconName: String {
-        if showDesignPreview {
-            return phase == .supported ? "exclamationmark.triangle" : "checkmark.seal"
-        }
         switch phase {
         case .priming: return "figure.walk.motion"
         case .checking: return "airpods"
         case .supported: return "checkmark.seal"
-        case .deniedOrUnsupported: return "exclamationmark.triangle"
+        case .unsupported, .denied: return "exclamationmark.triangle"
+        }
+    }
+
+    private var iconColor: Color {
+        switch phase {
+        case .supported: return Palette.sage
+        case .unsupported, .denied: return Palette.amber
+        default: return Palette.sage
         }
     }
 
     private var titleText: String {
-        if showDesignPreview {
-            return phase == .supported
-                ? "Not supported yet."
-                : "You're all set."
-        }
         switch phase {
-        case .priming: return "Motion &\nFitness."
+        case .priming: return "Allow Motion\n& Fitness"
         case .checking: return "Checking your\nAirPods…"
         case .supported: return "You're all set."
-        case .deniedOrUnsupported: return "Not supported yet."
+        case .unsupported: return "Not supported."
+        case .denied: return "Motion access\nis needed."
         }
     }
 
     private var subtitleText: String {
-        if showDesignPreview {
-            return phase == .supported
-                ? "These AirPods don't have a motion sensor. Perch needs AirPods (3rd gen), Pro, or Max."
-                : "Your AirPods support motion sensing. Perch is ready to keep you upright."
-        }
         switch phase {
         case .priming:
-            return "Perch uses your AirPods motion sensor to sense your posture, even in the background. Tap below to get started."
+            return "Perch reads the motion sensor in your AirPods to know when you're slouching — even in the background. Your motion data never leaves your phone."
         case .checking:
             return "One moment while we make sure your AirPods can sense motion."
         case .supported:
-            return "Your AirPods support motion sensing. Perch is ready to keep you upright."
-        case .deniedOrUnsupported:
-            return "Motion access is needed. Check Settings, or confirm your AirPods support motion sensing."
+            return "Your AirPods can sense motion. Perch is ready to keep you upright."
+        case .unsupported:
+            return "These AirPods don't support motion sensing. Perch needs AirPods (3rd gen), AirPods Pro, AirPods Max, or Beats Fit Pro."
+        case .denied:
+            return "Perch uses Motion & Fitness to sense your posture. Enable it in Settings, or try different AirPods that support motion sensing."
         }
-    }
-
-    private var previewLabel: String {
-        phase == .supported ? "Preview unsupported state" : "Preview supported state"
     }
 
     // MARK: - Real check logic
@@ -405,13 +428,12 @@ private struct MotionStep: View {
     private func runRealCheck() async {
         let manager = CMHeadphoneMotionManager()
 
-        // If device motion isn't available at all (pre-check), fail immediately.
         guard manager.isDeviceMotionAvailable else {
-            withAnimation { phase = .deniedOrUnsupported }
+            // No motion hardware at all — not a denied-permission case.
+            withAnimation { phase = .unsupported }
             return
         }
 
-        // Wait for the first motion sample with a timeout.
         var sampleArrived = false
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             manager.startDeviceMotionUpdates(to: .main) { motion, _ in
@@ -421,7 +443,6 @@ private struct MotionStep: View {
                 continuation.resume()
             }
 
-            // Timeout after `checkTimeout` seconds.
             DispatchQueue.main.asyncAfter(deadline: .now() + checkTimeout) {
                 guard !sampleArrived else { return }
                 manager.stopDeviceMotionUpdates()
@@ -429,276 +450,84 @@ private struct MotionStep: View {
             }
         }
 
+        // After the check, determine if permission was denied.
+        // If CMHeadphoneMotionManager.authorizationStatus() is available (iOS 18+),
+        // we can check. Otherwise, isDeviceMotionAvailable + no sample = likely denied.
+        let isDenied: Bool
+        if #available(iOS 18.0, *) {
+            isDenied = CMHeadphoneMotionManager.authorizationStatus() == .denied
+        } else {
+            // Pre-iOS 18: if device says motion IS available but no sample arrived,
+            // the user probably denied the prompt. (isDeviceMotionAvailable still
+            // returns true when permission is denied, annoyingly.)
+            isDenied = !sampleArrived
+        }
+
         withAnimation {
             if sampleArrived {
                 phase = .supported
-                // Brief pause so the user sees "You're all set," then advance.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    onContinue()
-                }
+            } else if isDenied {
+                phase = .denied
             } else {
-                phase = .deniedOrUnsupported
+                phase = .unsupported
             }
         }
     }
 }
 
-// MARK: - Step 3: Notifications primer + authorization
+// MARK: - Page 3: Allow notifications
 
-private struct NotificationsStep: View {
-    let onContinue: () -> Void
+private struct NotificationsPage: View {
+    let onFinish: () -> Void
     @Environment(NudgeService.self) private var nudge
 
-    enum Phase { case priming, requesting, authorized, denied }
+    enum Phase { case priming, requesting }
     @State private var phase: Phase = .priming
 
     var body: some View {
-        ZStack {
-            if phase == .denied {
-                deniedRecovery
-            } else {
-                mainContent
-            }
-        }
-    }
+        VStack(spacing: Space.xl) {
+            Spacer()
 
-    private var mainContent: some View {
-        StepScaffold(
-            icon: "bell",
-            title: "Gentle nudges.",
-            subtitle: "Perch sends a quiet notification if you've been slouching too long while the app is in the background. No loud alerts, ever."
-        ) {
+            Image(systemName: "bell")
+                .font(.system(size: 46, weight: .thin))
+                .foregroundStyle(Palette.sage)
+                .frame(height: 64)
+
+            VStack(spacing: Space.l) {
+                Text("Allow notifications")
+                    .font(.system(size: 30, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.center)
+
+                Text("So Perch can nudge you when you've been slouching a while — gently, never alarming.")
+                    .font(.system(.body, weight: .regular))
+                    .foregroundStyle(Palette.inkSoft)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(4)
+            }
+
+            Spacer()
+
             VStack(spacing: Space.m) {
-                PerchPrimaryButton(title: requestingLabel) {
-                    Task { await requestNotificationPermission() }
+                PerchPrimaryButton(
+                    title: phase == .requesting ? "Requesting…" : "Allow"
+                ) {
+                    Task { await requestPermission() }
                 }
                 .disabled(phase == .requesting)
-                .padding(.top, Space.l)
 
                 PerchTextButton(title: "Not now", color: Palette.mist) {
-                    onContinue()
+                    onFinish()
                 }
             }
-            .padding(.horizontal, Space.l)
         }
+        .padding(.horizontal, Space.xl)
     }
 
-    private var deniedRecovery: some View {
-        StepScaffold(
-            icon: "gearshape",
-            title: "Notifications\nare off.",
-            subtitle: "Without notifications, Perch can't nudge you when you're slouching in the background. You can turn them on anytime in Settings."
-        ) {
-            VStack(spacing: Space.m) {
-                PerchPrimaryButton(title: "Open Settings") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
-                    }
-                }
-                .padding(.top, Space.l)
-
-                PerchTextButton(title: "Continue anyway", color: Palette.mist) {
-                    onContinue()
-                }
-            }
-            .padding(.horizontal, Space.l)
-        }
-    }
-
-    private var requestingLabel: String {
-        phase == .requesting ? "Requesting…" : "Allow access"
-    }
-
-    private func requestNotificationPermission() async {
+    private func requestPermission() async {
         phase = .requesting
         await nudge.requestNotificationPermission()
-
-        // Check the actual authorization status after the prompt.
-        let settings = await UNUserNotificationCenter.current().notificationSettings()
-        withAnimation {
-            switch settings.authorizationStatus {
-            case .authorized, .provisional, .ephemeral:
-                phase = .authorized
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                    onContinue()
-                }
-            case .denied:
-                phase = .denied
-            case .notDetermined:
-                phase = .priming
-            @unknown default:
-                phase = .priming
-            }
-        }
-    }
-}
-
-// MARK: - Step 4: Social proof / testimonials (placeholders)
-
-private struct SocialProofStep: View {
-    @State private var currentPage = 0
-    @State private var autoTimer: Timer?
-
-    var body: some View {
-        StepScaffold(
-            icon: "heart",
-            title: "People love\nliving upright.",
-            subtitle: "Most people feel more aware of their posture within a few weeks of leaving Perch on."
-        ) {
-            VStack(spacing: Space.m) {
-                // Paged carousel — each testimonial gets its own card.
-                TabView(selection: $currentPage) {
-                    ForEach(Array(testimonials.enumerated()), id: \.offset) { idx, t in
-                        testimonialCard(t)
-                            .tag(idx)
-                            .padding(.horizontal, Space.xl)
-                    }
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .frame(height: 200)
-
-                // Custom dot indicator.
-                HStack(spacing: 8) {
-                    ForEach(0..<testimonials.count, id: \.self) { i in
-                        Capsule()
-                            .fill(i == currentPage ? Palette.sage : Palette.hairline)
-                            .frame(width: i == currentPage ? 18 : 7, height: 7)
-                            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: currentPage)
-                    }
-                }
-            }
-            .padding(.top, Space.l)
-            .onAppear { startAutoAdvance() }
-            .onDisappear { autoTimer?.invalidate() }
-        }
-    }
-
-    private func testimonialCard(_ t: Testimonial) -> some View {
-        VStack(alignment: .leading, spacing: Space.s) {
-            // 5-star row — soft amber stars, not loud.
-            HStack(spacing: 3) {
-                ForEach(0..<5, id: \.self) { _ in
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.amberSoft)
-                }
-            }
-
-            Text(t.quote)
-                .font(.system(.subheadline, weight: .regular))
-                .foregroundStyle(Palette.inkSoft)
-                .fixedSize(horizontal: false, vertical: true)
-                .lineSpacing(2)
-
-            Text("— \(t.name)")
-                .font(.system(.footnote, weight: .medium))
-                .foregroundStyle(Palette.mist)
-        }
-        .padding(Space.l)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
-                .fill(Palette.surface)
-        )
-        .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
-    }
-
-    /// Gently auto-advance through testimonials every 5 seconds.
-    private func startAutoAdvance() {
-        autoTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { _ in
-            Task { @MainActor in
-                withAnimation { currentPage = (currentPage + 1) % testimonials.count }
-            }
-        }
-    }
-}
-
-// TODO: Replace with real reviews before shipping.
-private struct Testimonial: Identifiable {
-    let id = UUID()
-    let name: String
-    let quote: String
-}
-
-private let testimonials: [Testimonial] = [
-    Testimonial(
-        name: "Jamie L.",
-        quote: "I didn't think I'd notice a difference, but after two weeks my neck doesn't ache at the end of the day anymore. Quietest, most useful app I own."
-    ),
-    Testimonial(
-        name: "Dr. Rivera",
-        quote: "As a PT, I recommend Perch to patients who want a gentle reminder to sit tall during long desk days. It's the simplest posture tool I've seen."
-    ),
-    Testimonial(
-        name: "Sam K.",
-        quote: "I literally forget it's there until I feel that soft buzz. Then I sit up and go back to work. Effortless."
-    ),
-]
-
-// MARK: - Step 5: Calibrate (hold-to-capture, skippable)
-
-private struct CalibrateStep: View {
-    let onCalibrate: () -> Void
-    let onSkip: () -> Void
-    @Environment(PostureSource.self) private var source
-
-    @State private var capturePhase: CapturePhase = .ready
-
-    var body: some View {
-        StepScaffold(
-            icon: captureIcon,
-            title: captureTitle,
-            subtitle: captureSubtitle
-        ) {
-            VStack(spacing: Space.l) {
-                CalibrationHoldView(
-                    liveAngle: source.liveRawTilt,
-                    phase: $capturePhase,
-                    onCaptured: {
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        Task {
-                            try? await Task.sleep(for: .seconds(1.2))
-                            onCalibrate()
-                        }
-                    }
-                )
-                .frame(width: 200, height: 200)
-
-                if capturePhase != .captured {
-                    PerchTextButton(title: "Skip for now", color: Palette.mist) {
-                        onSkip()
-                    }
-                    .padding(.top, Space.m)
-                }
-            }
-            .padding(.top, Space.l)
-        }
-    }
-
-    private var captureIcon: String {
-        switch capturePhase {
-        case .ready: return "figure.seated.side"
-        case .capturing: return "scope"
-        case .captured: return "checkmark.circle"
-        }
-    }
-
-    private var captureTitle: String {
-        switch capturePhase {
-        case .ready: return "Sit the way you'd\nlike to sit all day."
-        case .capturing: return "Hold steady…"
-        case .captured: return "Perfectly set."
-        }
-    }
-
-    private var captureSubtitle: String {
-        switch capturePhase {
-        case .ready:
-            return "Get comfortable and upright. Then hold your head still — the ring fills when you're steady."
-        case .capturing:
-            return "Almost there. Keep your head still just a moment longer."
-        case .captured:
-            return "That's your good posture. Perch will gently let you know whenever you drift away from it."
-        }
+        // Proceed regardless of the user's choice.
+        onFinish()
     }
 }
