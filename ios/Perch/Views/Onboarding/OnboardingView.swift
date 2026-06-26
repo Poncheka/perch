@@ -125,7 +125,7 @@ private struct IntroPage: View {
                 .frame(height: 90)
 
             VStack(spacing: Space.l) {
-                AnimatedHeroTitle(phase: phase)
+                Text("Fix your posture\nwith AirPods")
                     .font(.system(size: 30, weight: .semibold))
                     .foregroundStyle(Palette.ink)
                     .multilineTextAlignment(.center)
@@ -148,30 +148,6 @@ private struct IntroPage: View {
                 phase = 1
             }
         }
-    }
-}
-
-/// Progressively capitalizes "posture" → "POSTURE" left to right,
-/// driven by `phase` (0…1). Timed to finish as the seated figure
-/// reaches upright.
-private struct AnimatedHeroTitle: View {
-    let phase: Double
-    private let target = "posture"
-    private let upper = "POSTURE"
-
-    var body: some View {
-        let count = capitalizedCount
-        Text("Fix your \(buildWord(count))\nwith AirPods")
-    }
-
-    private func buildWord(_ count: Int) -> String {
-        let prefix = String(upper.prefix(count))
-        let suffix = String(target.suffix(target.count - count))
-        return prefix + suffix
-    }
-
-    private var capitalizedCount: Int {
-        min(target.count, max(0, Int((phase * Double(target.count)).rounded(.up))))
     }
 }
 

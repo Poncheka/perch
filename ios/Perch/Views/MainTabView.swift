@@ -22,7 +22,7 @@ struct MainTabView: View {
                     Label("Today", systemImage: "figure.seated.side")
                 }
 
-            HistoryView()
+            ProgressView()
                 .tabItem {
                     Label("Progress", systemImage: "chart.bar")
                 }

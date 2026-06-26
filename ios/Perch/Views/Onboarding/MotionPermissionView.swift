@@ -3,8 +3,8 @@
 //  Perch
 //
 //  A dedicated full-screen step shown AFTER onboarding but BEFORE the paywall
-//  and calibration. Triggers the real iOS Motion & Fitness permission prompt
-//  by starting CMHeadphoneMotionManager, then runs a live compatibility check.
+//  and calibration. The real iOS Motion & Fitness permission prompt is ONLY
+//  triggered when the user explicitly taps "Allow access" — never before.
 //
 //  After the check: if supported, proceeds to the next phase. If unsupported or
 //  denied, offers recovery paths. The user is never hard-blocked.
@@ -16,8 +16,6 @@ import CoreMotion
 struct MotionPermissionView: View {
     let onComplete: () -> Void
 
-    @Environment(PostureSource.self) private var source
-
     enum Phase: Equatable {
         case priming
         case checking
@@ -27,6 +25,7 @@ struct MotionPermissionView: View {
     }
 
     @State private var phase: Phase = .priming
+    @State private var didTapAllow = false
     private let checkTimeout: Double = 2.0
 
     var body: some View {
@@ -59,7 +58,11 @@ struct MotionPermissionView: View {
                 VStack(spacing: Space.m) {
                     switch phase {
                     case .priming:
-                        PerchPrimaryButton(title: "Allow access") { startCheck() }
+                        PerchPrimaryButton(title: "Allow access") {
+                            guard !didTapAllow else { return }
+                            didTapAllow = true
+                            startCheck()
+                        }
                     case .checking:
                         ProgressView()
                             .tint(Palette.sage)
@@ -68,11 +71,10 @@ struct MotionPermissionView: View {
                         PerchPrimaryButton(title: "Continue") { onComplete() }
                     case .unsupported:
                         VStack(spacing: Space.m) {
-                            PerchTextButton(title: "Try other AirPods", color: Palette.mist) {
-                                // User can still continue — they aren't hard-blocked.
+                            PerchPrimaryButton(title: "Try other AirPods") {
                                 onComplete()
                             }
-                            PerchTextButton(title: "Continue anyway", color: Palette.sage) {
+                            PerchTextButton(title: "Continue anyway", color: Palette.mist) {
                                 onComplete()
                             }
                         }
@@ -140,6 +142,7 @@ struct MotionPermissionView: View {
 
     // MARK: - Real check logic
 
+    /// Only called after the user explicitly taps "Allow access".
     private func startCheck() {
         phase = .checking
         Task { await runRealCheck() }
@@ -147,6 +150,7 @@ struct MotionPermissionView: View {
 
     /// Start CMHeadphoneMotionManager — this triggers the OS Motion & Fitness
     /// permission prompt AND verifies motion capability in one step.
+    /// The guard on `didTapAllow` ensures this only runs once, on explicit user action.
     private func runRealCheck() async {
         let manager = CMHeadphoneMotionManager()
 
