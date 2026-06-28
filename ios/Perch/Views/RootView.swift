@@ -29,43 +29,44 @@ struct RootView: View {
         case done
     }
 
-    @State private var phase: PostOnboardingPhase
-
-    init() {
-        // Compute the initial post-onboarding phase synchronously so we never
-        // flash MainTabView before onboarding is truly complete.
-        // The store has already been read from disk by the time RootView appears,
-        // but @Environment isn't available in init. We set a placeholder and
-        // immediately fix it in the computed effectivePhase.
-        _phase = State(initialValue: .motionPermission)
-    }
+    /// The screen displayed is driven by this state machine, NOT by a
+    /// recomputed value.  While nil the view renders only the background
+    /// so the sensor never starts and there is no flash.
+    @State private var phase: PostOnboardingPhase? = nil
 
     var body: some View {
-        let effectivePhase = computeEffectivePhase()
-
         Group {
             if !store.hasOnboarded {
                 OnboardingView()
-            } else {
-                switch effectivePhase {
+            } else if let resolved = phase {
+                switch resolved {
                 case .motionPermission:
-                    MotionPermissionView(onComplete: { advancePostOnboarding(effectivePhase) })
+                    MotionPermissionView {
+                        advancePostOnboarding(.motionPermission)
+                    }
                 case .calibration:
-                    CalibrationOnboardingView(onComplete: { advancePostOnboarding(effectivePhase) })
+                    CalibrationOnboardingView {
+                        advancePostOnboarding(.calibration)
+                    }
                 case .paywall:
                     Color.clear
                         .frame(width: 1, height: 1)
-                        .onAppear {
-                            showPaywall = true
-                        }
+                        .onAppear { showPaywall = true }
                 case .done:
                     MainTabView()
                 }
+            } else {
+                PerchBackground()
+            }
+        }
+        .onAppear {
+            if store.hasOnboarded, phase == nil {
+                phase = computeInitialPhase()
             }
         }
         .onChange(of: store.hasOnboarded) { _, onboarded in
             if onboarded {
-                phase = computeEffectivePhase()
+                phase = computeInitialPhase()
             }
         }
         .sheet(isPresented: $showPaywall) {
@@ -79,16 +80,20 @@ struct RootView: View {
         }
     }
 
-    // MARK: - Post-onboarding navigation
+    // MARK: - Initial routing
 
-    /// Compute the correct phase from store flags — never defaults to `.done`.
-    private func computeEffectivePhase() -> PostOnboardingPhase {
+    /// Compute the correct starting phase from store flags.
+    /// Only called ONCE to seed the state machine — never inside the body.
+    private func computeInitialPhase() -> PostOnboardingPhase {
         guard store.hasOnboarded else { return .motionPermission }
         if store.subscription.isUnlocked { return .done }
         if store.hasCalibrated { return .paywall }
         return .motionPermission
     }
 
+    // MARK: - State‑machine advance
+
+    /// Mutate `phase` to advance the post‑onboarding sequence.
     private func advancePostOnboarding(_ from: PostOnboardingPhase) {
         switch from {
         case .motionPermission:
