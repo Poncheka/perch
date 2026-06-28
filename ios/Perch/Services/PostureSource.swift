@@ -95,6 +95,7 @@ final class PostureSource: NSObject {
     /// before the user is ready.
     private var motionManager: CMHeadphoneMotionManager?
     private var rawTilt: Double = 0      ///< Live uncalibrated pitch from sensor (degrees).
+    private var rawRoll: Double = 0      ///< Live uncalibrated roll from sensor (degrees).
     private var baseline: Double = 0     ///< Pitch captured at calibration time.
     private var _sensorAirpodsConnected: Bool = false
 
@@ -110,8 +111,10 @@ final class PostureSource: NSObject {
     // MARK: - Simulated internals
 
     private var simRawTilt: Double = 6
+    private var simRawRoll: Double = 0
     private var simBaseline: Double = 6
     private var driftTarget: Double = 6
+    private var rollDriftTarget: Double = 0
     private var ticksUntilNewTarget = 0
     private var simTimer: Timer?
 
@@ -175,12 +178,21 @@ final class PostureSource: NSObject {
         }
     }
 
-    /// The live uncalibrated tilt, useful for the hold-to-capture bubble-level
-    /// visualization during calibration.
+    /// The live uncalibrated tilt (pitch), useful for the hold-to-capture
+    /// bubble-level visualization during calibration.
     var liveRawTilt: Double {
         switch sourceMode {
         case .real: return rawTilt
         case .simulated: return simRawTilt
+        }
+    }
+
+    /// The live uncalibrated roll (head tilt toward shoulder), for 2D
+    /// bubble-level calibration.
+    var liveRawRoll: Double {
+        switch sourceMode {
+        case .real: return rawRoll
+        case .simulated: return simRawRoll
         }
     }
 
@@ -220,6 +232,9 @@ final class PostureSource: NSObject {
         // Positive pitch ≈ device tilting forward (head drooping).
         // Convert to degrees and subtract the calibration baseline.
         rawTilt = motion.attitude.pitch * 180.0 / .pi
+        // attitude.roll is rotation around the y-axis in radians.
+        // Positive roll ≈ tilting head toward right shoulder.
+        rawRoll = motion.attitude.roll * 180.0 / .pi
         neckAngle = rawTilt - baseline
     }
 
@@ -252,6 +267,13 @@ final class PostureSource: NSObject {
         let ease = 0.04
         simRawTilt += (driftTarget - simRawTilt) * ease
         simRawTilt += Double.random(in: -0.25...0.25)
+
+        // Gentle roll drift around 0° so the 2D bubble moves side-to-side.
+        if ticksUntilNewTarget <= 0 {
+            rollDriftTarget = Double.random(in: -8...8)
+        }
+        simRawRoll += (rollDriftTarget - simRawRoll) * ease
+        simRawRoll += Double.random(in: -0.2...0.2)
 
         neckAngle = simRawTilt - simBaseline
     }

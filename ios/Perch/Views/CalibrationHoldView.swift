@@ -2,10 +2,14 @@
 //  CalibrationHoldView.swift
 //  Perch
 //
-//  Hold-to-capture calibration: a bubble-level dot moves with live head angle.
-//  The user centers it and holds still while a circular progress arc fills over
-//  ~3 seconds. If angle variance exceeds a small threshold, the arc resets.
-//  On completion, fires the `onCaptured` callback.
+//  2D bubble-level calibration: a dot moves with live head pitch (vertical)
+//  + roll (horizontal) inside a ring.  Yaw is intentionally ignored — turning
+//  the head left/right does not move the bubble.
+//
+//  The user centers the dot and holds still; after a 0.6 s settle the
+//  capturing phase begins.  A progress arc fills over ~3 s while the head
+//  stays steady (2D variance below threshold).  If the user moves too much,
+//  the arc resets.  On completion the `.captured` phase fires the callback.
 //
 
 import SwiftUI
@@ -19,8 +23,10 @@ enum CapturePhase: Equatable {
 }
 
 struct CalibrationHoldView: View {
-    /// Live uncalibrated angle from PostureSource (degrees).
-    let liveAngle: Double
+    /// Live uncalibrated pitch from PostureSource (degrees).
+    let livePitch: Double
+    /// Live uncalibrated roll from PostureSource (degrees).
+    let liveRoll: Double
     @Binding var phase: CapturePhase
     let onCaptured: () -> Void
 
@@ -28,15 +34,15 @@ struct CalibrationHoldView: View {
 
     private let captureDuration: Double = 3.0       ///< Seconds the user must hold steady.
     private let settleDelay: Double = 0.6            ///< Seconds to settle before auto-capturing.
-    private let varianceThreshold: Double = 1.2     ///< Max allowed ° variance before reset.
+    private let varianceThreshold: Double = 1.8     ///< Max allowed 2D std-dev before reset.
     private let sampleWindow: Double = 0.8          ///< Seconds of samples in the variance window.
     private let dotRange: Double = 20               ///< ° range mapped across the bubble circle.
+    private let ringRadius: CGFloat = 56            ///< Max dot offset from center in points.
 
     // MARK: - Internal state
 
-    @State private var samples: [Double] = []
+    @State private var positionSamples: [CGPoint] = []
     @State private var elapsed: Double = 0
-    @State private var tick = 0
 
     private let tickInterval: Double = 0.08
 
@@ -61,12 +67,13 @@ struct CalibrationHoldView: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.linear(duration: tickInterval), value: elapsed)
 
-                // Moving dot — horizontal position reflects live angle
+                // Moving dot — 2D: horizontal from roll, vertical from pitch
                 Circle()
                     .fill(Palette.sage)
                     .frame(width: 12, height: 12)
-                    .offset(x: dotOffset)
-                    .animation(.easeInOut(duration: tickInterval), value: dotOffset)
+                    .offset(x: rollOffset, y: pitchOffset)
+                    .animation(.easeInOut(duration: tickInterval), value: rollOffset)
+                    .animation(.easeInOut(duration: tickInterval), value: pitchOffset)
 
                 // Center crosshair (subtle)
                 Circle()
@@ -109,13 +116,29 @@ struct CalibrationHoldView: View {
         }
     }
 
-    // MARK: - Helpers
+    // MARK: - 2D dot position
 
-    private var dotOffset: CGFloat {
-        let clamped = max(-dotRange, min(dotRange, liveAngle))
+    /// Horizontal offset from roll (head tilt toward shoulder).
+    private var rollOffset: CGFloat {
+        let clamped = max(-dotRange, min(dotRange, liveRoll))
         let fraction = clamped / dotRange
-        return fraction * 56
+        return fraction * ringRadius
     }
+
+    /// Vertical offset from pitch (head tilt forward/back).
+    /// Positive pitch (head drooping forward) moves the dot downward.
+    private var pitchOffset: CGFloat {
+        let clamped = max(-dotRange, min(dotRange, livePitch))
+        let fraction = clamped / dotRange
+        return fraction * ringRadius
+    }
+
+    /// Current 2D dot position in the ring coordinate system.
+    private var currentPosition: CGPoint {
+        CGPoint(x: rollOffset, y: pitchOffset)
+    }
+
+    // MARK: - Labels
 
     private var captureLabel: String {
         switch phase {
@@ -139,42 +162,54 @@ struct CalibrationHoldView: View {
     }
 
     private func reset() {
-        samples.removeAll()
+        positionSamples.removeAll()
         elapsed = 0
     }
 
     private func startCapturing() {
-        samples.removeAll()
+        positionSamples.removeAll()
         elapsed = 0
 
-        // Seed samples from the current angle so variance starts low.
-        samples = Array(repeating: liveAngle, count: Int(sampleWindow / tickInterval))
+        // Seed samples from the current position so variance starts low.
+        let seed = currentPosition
+        let count = Int(sampleWindow / tickInterval)
+        positionSamples = Array(repeating: seed, count: count)
     }
+
+    // MARK: - 2D steadiness check
 
     private func sampleTick() {
         // Add new sample, prune old.
-        samples.append(liveAngle)
+        positionSamples.append(currentPosition)
         let maxCount = Int(sampleWindow / tickInterval)
-        if samples.count > maxCount {
-            samples.removeFirst(samples.count - maxCount)
+        if positionSamples.count > maxCount {
+            positionSamples.removeFirst(positionSamples.count - maxCount)
         }
 
-        guard samples.count >= 2 else {
+        guard positionSamples.count >= 2 else {
             elapsed += tickInterval
             return
         }
 
-        let mean = samples.reduce(0, +) / Double(samples.count)
-        let variance = samples.map({ ($0 - mean) * ($0 - mean) }).reduce(0, +) / Double(samples.count)
-        let stdDev = sqrt(variance)
+        // 2D variance: mean squared distance from the mean position.
+        let meanX = positionSamples.map(\.x).reduce(0, +) / CGFloat(positionSamples.count)
+        let meanY = positionSamples.map(\.y).reduce(0, +) / CGFloat(positionSamples.count)
+        let variance = positionSamples.map { pt -> CGFloat in
+            let dx = pt.x - meanX
+            let dy = pt.y - meanY
+            return dx * dx + dy * dy
+        }.reduce(0, +) / CGFloat(positionSamples.count)
+        let stdDev = sqrt(Double(variance))
 
         if stdDev < varianceThreshold {
             elapsed += tickInterval
             if elapsed >= captureDuration {
                 phase = .captured
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
                 onCaptured()
             }
         } else {
+            // Head moved too much — reset progress.
             elapsed = 0
         }
     }

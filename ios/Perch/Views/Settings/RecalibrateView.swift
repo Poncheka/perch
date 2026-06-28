@@ -38,7 +38,8 @@ struct RecalibrateView: View {
                     .multilineTextAlignment(.center)
 
                 CalibrationHoldView(
-                    liveAngle: source.liveRawTilt,
+                    livePitch: source.liveRawTilt,
+                    liveRoll: source.liveRawRoll,
                     phase: $capturePhase,
                     onCaptured: {
                         source.calibrate()

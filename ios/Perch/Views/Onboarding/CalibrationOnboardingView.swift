@@ -45,7 +45,8 @@ struct CalibrationOnboardingView: View {
                 }
 
                 CalibrationHoldView(
-                    liveAngle: source.liveRawTilt,
+                    livePitch: source.liveRawTilt,
+                    liveRoll: source.liveRawRoll,
                     phase: $capturePhase,
                     onCaptured: {
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -63,7 +64,7 @@ struct CalibrationOnboardingView: View {
                         PerchPrimaryButton(title: "Continue") {
                             onComplete()
                         }
-                        PerchTextButton(title: "Re-do", color: Palette.sage) {
+                        PerchTextButton(title: "Re-calibrate", color: Palette.sage) {
                             withAnimation(.easeInOut(duration: 0.3)) {
                                 capturePhase = .ready
                             }
