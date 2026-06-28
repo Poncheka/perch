@@ -59,6 +59,7 @@ struct PerchApp: App {
                 .environment(billing)
                 .environment(db)
                 .tint(Palette.sage)
+                .preferredColorScheme(.light)
         }
     }
 }

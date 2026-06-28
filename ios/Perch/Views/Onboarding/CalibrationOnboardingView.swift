@@ -5,7 +5,8 @@
 //  A calm, one-time calibration step shown AFTER Motion & Fitness permission
 //  and BEFORE the paywall. The user sits as they'd like to sit all day, holds
 //  their head steady while a circular progress arc fills. On completion, the
-//  baseline is set and the flow continues to the paywall.
+//  baseline is set. The user can then "Continue" to the paywall or "Re-do"
+//  to recapture. A "Skip for now" fallback is always available.
 //
 
 import SwiftUI
@@ -49,21 +50,30 @@ struct CalibrationOnboardingView: View {
                     onCaptured: {
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
                         source.calibrate()
-                        store.setBaseline(0)
+                        store.setBaseline(source.liveRawTilt)
                         store.completeCalibration()
-                        Task {
-                            try? await Task.sleep(for: .seconds(1.2))
-                            onComplete()
-                        }
                     }
                 )
                 .frame(width: 200, height: 200)
 
-                if capturePhase != .captured {
+                // Show Continue + Re-do after successful capture.
+                // Keep "Skip for now" as a secondary fallback when not yet captured.
+                if capturePhase == .captured {
+                    VStack(spacing: Space.m) {
+                        PerchPrimaryButton(title: "Continue") {
+                            onComplete()
+                        }
+                        PerchTextButton(title: "Re-do", color: Palette.sage) {
+                            withAnimation(.easeInOut(duration: 0.3)) {
+                                capturePhase = .ready
+                            }
+                        }
+                    }
+                } else {
                     PerchTextButton(title: "Skip for now", color: Palette.mist) {
                         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
                         source.calibrate()
-                        store.setBaseline(0)
+                        store.setBaseline(source.liveRawTilt)
                         store.completeCalibration()
                         onComplete()
                     }

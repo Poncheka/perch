@@ -187,7 +187,7 @@ private struct ConnectAirPodsPage: View {
                             .lineSpacing(4)
                     }
                 } else {
-                    Text("Pop in your AirPods to continue")
+                    Text("Connect your AirPods from Control Center or Settings → Bluetooth, then come back.")
                         .font(.system(.body, weight: .regular))
                         .foregroundStyle(Palette.inkSoft)
                         .multilineTextAlignment(.center)
@@ -197,27 +197,17 @@ private struct ConnectAirPodsPage: View {
 
             Spacer()
 
-            VStack(spacing: Space.m) {
-                PerchPrimaryButton(
-                    title: "Continue",
-                    fill: connected ? Palette.sage : Palette.hairline,
-                    foreground: connected ? Palette.cream : Palette.mist
-                ) {
-                    onNext()
-                }
-                .disabled(!connected)
-
-                if !connected {
-                    PerchTextButton(title: "Open Bluetooth Settings", color: Palette.mist) {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
-                    }
-                }
+            PerchPrimaryButton(
+                title: connected ? "Continue" : "Make sure your AirPods are in, then continue",
+                fill: connected ? Palette.sage : Palette.amberSoft,
+                foreground: connected ? Palette.cream : Palette.ink
+            ) {
+                onNext()
             }
         }
         .padding(.horizontal, Space.xl)
         .animation(.easeInOut(duration: 0.4), value: connected)
+        .onAppear { source.updateAudioRoute() }
     }
 }
 

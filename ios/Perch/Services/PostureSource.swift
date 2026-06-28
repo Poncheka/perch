@@ -343,7 +343,7 @@ final class PostureSource: NSObject {
 
     // MARK: - Audio route (cosmetic)
 
-    private func updateAudioRoute() {
+    func updateAudioRoute() {
         let session = AVAudioSession.sharedInstance()
         for output in session.currentRoute.outputs {
             if output.portType == .bluetoothA2DP

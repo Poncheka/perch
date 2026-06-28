@@ -27,6 +27,7 @@ struct CalibrationHoldView: View {
     // MARK: - Tuning
 
     private let captureDuration: Double = 3.0       ///< Seconds the user must hold steady.
+    private let settleDelay: Double = 0.6            ///< Seconds to settle before auto-capturing.
     private let varianceThreshold: Double = 1.2     ///< Max allowed ° variance before reset.
     private let sampleWindow: Double = 0.8          ///< Seconds of samples in the variance window.
     private let dotRange: Double = 20               ///< ° range mapped across the bubble circle.
@@ -87,6 +88,17 @@ struct CalibrationHoldView: View {
                 .font(.system(.subheadline, weight: .medium))
                 .foregroundStyle(Palette.inkSoft)
                 .animation(.easeInOut(duration: 0.3), value: captureLabel)
+        }
+        .onAppear {
+            // Auto-transition from .ready to .capturing after a short settle
+            // so the arc actually begins filling without requiring an extra tap.
+            if phase == .ready {
+                DispatchQueue.main.asyncAfter(deadline: .now() + settleDelay) {
+                    if phase == .ready {
+                        phase = .capturing
+                    }
+                }
+            }
         }
         .onChange(of: phase) { _, newPhase in
             handlePhaseChange(newPhase)

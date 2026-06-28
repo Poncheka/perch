@@ -15,6 +15,7 @@ import CoreMotion
 
 struct MotionPermissionView: View {
     let onComplete: () -> Void
+    @Environment(PostureSource.self) private var source
 
     enum Phase: Equatable {
         case priming
@@ -185,6 +186,9 @@ struct MotionPermissionView: View {
         withAnimation {
             if sampleArrived {
                 phase = .supported
+                // Start the real sensor pipeline now — calibration + the rest
+                // of the app need live data flowing.
+                source.start()
             } else if isDenied {
                 phase = .denied
             } else {

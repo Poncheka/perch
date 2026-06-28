@@ -29,18 +29,29 @@ struct RootView: View {
         case done
     }
 
-    @State private var phase: PostOnboardingPhase = .done
+    @State private var phase: PostOnboardingPhase
+
+    init() {
+        // Compute the initial post-onboarding phase synchronously so we never
+        // flash MainTabView before onboarding is truly complete.
+        // The store has already been read from disk by the time RootView appears,
+        // but @Environment isn't available in init. We set a placeholder and
+        // immediately fix it in the computed effectivePhase.
+        _phase = State(initialValue: .motionPermission)
+    }
 
     var body: some View {
+        let effectivePhase = computeEffectivePhase()
+
         Group {
             if !store.hasOnboarded {
                 OnboardingView()
             } else {
-                switch phase {
+                switch effectivePhase {
                 case .motionPermission:
-                    MotionPermissionView(onComplete: { advancePostOnboarding() })
+                    MotionPermissionView(onComplete: { advancePostOnboarding(effectivePhase) })
                 case .calibration:
-                    CalibrationOnboardingView(onComplete: { advancePostOnboarding() })
+                    CalibrationOnboardingView(onComplete: { advancePostOnboarding(effectivePhase) })
                 case .paywall:
                     Color.clear
                         .frame(width: 1, height: 1)
@@ -54,13 +65,7 @@ struct RootView: View {
         }
         .onChange(of: store.hasOnboarded) { _, onboarded in
             if onboarded {
-                if store.subscription.isUnlocked {
-                    phase = .done
-                } else if store.hasCalibrated {
-                    phase = .paywall
-                } else {
-                    phase = .motionPermission
-                }
+                phase = computeEffectivePhase()
             }
         }
         .sheet(isPresented: $showPaywall) {
@@ -76,8 +81,16 @@ struct RootView: View {
 
     // MARK: - Post-onboarding navigation
 
-    private func advancePostOnboarding() {
-        switch phase {
+    /// Compute the correct phase from store flags — never defaults to `.done`.
+    private func computeEffectivePhase() -> PostOnboardingPhase {
+        guard store.hasOnboarded else { return .motionPermission }
+        if store.subscription.isUnlocked { return .done }
+        if store.hasCalibrated { return .paywall }
+        return .motionPermission
+    }
+
+    private func advancePostOnboarding(_ from: PostOnboardingPhase) {
+        switch from {
         case .motionPermission:
             if store.hasCalibrated {
                 phase = .paywall
