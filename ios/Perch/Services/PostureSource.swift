@@ -70,6 +70,11 @@ final class PostureSource: NSObject {
     var isMoving: Bool = false
     var isOnCall: Bool = false
 
+    /// Timestamp of the most recent live motion sample. Nil until the first
+    /// sample arrives. CalibrationHoldView uses this to detect whether live
+    /// sensor data is actually flowing (vs. a frozen/zero signal).
+    private(set) var lastMotionTimestamp: Date?
+
     /// Cosmetic: the current audio route port name (e.g. "John's AirPods Pro").
     /// Read from AVAudioSession. Never gated on — cosmetic only.
     private(set) var audioRouteName: String?
@@ -236,6 +241,7 @@ final class PostureSource: NSObject {
         // Positive roll ≈ tilting head toward right shoulder.
         rawRoll = motion.attitude.roll * 180.0 / .pi
         neckAngle = rawTilt - baseline
+        lastMotionTimestamp = Date()
     }
 
     // MARK: - Simulated sensor pipeline
@@ -276,6 +282,7 @@ final class PostureSource: NSObject {
         simRawRoll += Double.random(in: -0.2...0.2)
 
         neckAngle = simRawTilt - simBaseline
+        lastMotionTimestamp = Date()
     }
 
     // MARK: - Audio session configuration

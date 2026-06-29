@@ -14,7 +14,7 @@ struct RecalibrateView: View {
     @Environment(PerchStore.self) private var store
     @Environment(PostureSource.self) private var source
 
-    @State private var capturePhase: CapturePhase = .ready
+    @State private var capturePhase: CapturePhase = .aligning
 
     var body: some View {
         ZStack {
@@ -40,18 +40,17 @@ struct RecalibrateView: View {
                 CalibrationHoldView(
                     livePitch: source.liveRawTilt,
                     liveRoll: source.liveRawRoll,
+                    lastMotionTimestamp: source.lastMotionTimestamp,
                     phase: $capturePhase,
                     onCaptured: {
                         source.calibrate()
                         store.setBaseline(0)
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
                         Task {
-                            try? await Task.sleep(for: .seconds(1.0))
+                            try? await Task.sleep(for: .seconds(1.2))
                             dismiss()
                         }
                     }
                 )
-                .frame(width: 180, height: 180)
 
                 Spacer()
             }

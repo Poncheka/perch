@@ -2,8 +2,8 @@
 //  HomeView.swift
 //  Perch
 //
-//  The "Today" tab. Purely the live sensor: a single breathing status ring,
-//  the "warming up" state, and the quiet "Snooze 30 min" control.
+//  The "Today" tab. Purely the live sensor: a single breathing status ring
+//  and the quiet "Snooze 30 min" control.
 //  Nothing else — Corrections, Streak, and analytics live on the Progress tab.
 //
 
@@ -22,11 +22,6 @@ struct HomeView: View {
         let t = store.profile.slouchThreshold
         guard t > 0 else { return 0 }
         return min(1, max(0, source.neckAngle / t))
-    }
-
-    private let warmupThreshold: Double = 150
-    private var isWarmingUp: Bool {
-        engine.state.isMonitoring && engine.monitoredSeconds < warmupThreshold
     }
 
     var body: some View {
@@ -54,11 +49,10 @@ struct HomeView: View {
                 color: engine.state.ringColor,
                 isMonitoring: engine.state.isMonitoring,
                 slouchProgress: slouchProgress,
-                isWarmingUp: isWarmingUp,
                 isSnoozed: engine.isSnoozing,
                 onResume: { engine.cancelSnooze() }
             )
-            .overlay { if !engine.isSnoozing && !isWarmingUp { ringNumberTapTarget } }
+            .overlay { if !engine.isSnoozing { ringNumberTapTarget } }
 
             statusLine
         }
@@ -75,13 +69,7 @@ struct HomeView: View {
 
     private var statusLine: some View {
         VStack(spacing: Space.s) {
-            if isWarmingUp {
-                Text("Warming up — keep your AirPods in a little longer.")
-                    .font(.system(.title3, design: .default, weight: .regular))
-                    .foregroundStyle(Palette.ink)
-                    .multilineTextAlignment(.center)
-                    .transition(.opacity)
-            } else if engine.state == .muted, let line = engine.muteStatusLine {
+            if engine.state == .muted, let line = engine.muteStatusLine {
                 Text(line)
                     .font(.system(.title3, design: .default, weight: .regular))
                     .foregroundStyle(Palette.ink)

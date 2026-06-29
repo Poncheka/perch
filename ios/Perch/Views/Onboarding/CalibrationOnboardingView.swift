@@ -17,7 +17,7 @@ struct CalibrationOnboardingView: View {
     @Environment(PerchStore.self) private var store
     @Environment(PostureSource.self) private var source
 
-    @State private var capturePhase: CapturePhase = .ready
+    @State private var capturePhase: CapturePhase = .aligning
 
     var body: some View {
         ZStack {
@@ -47,15 +47,14 @@ struct CalibrationOnboardingView: View {
                 CalibrationHoldView(
                     livePitch: source.liveRawTilt,
                     liveRoll: source.liveRawRoll,
+                    lastMotionTimestamp: source.lastMotionTimestamp,
                     phase: $capturePhase,
                     onCaptured: {
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
                         source.calibrate()
                         store.setBaseline(source.liveRawTilt)
                         store.completeCalibration()
                     }
                 )
-                .frame(width: 200, height: 200)
 
                 // Show Continue + Re-do after successful capture.
                 // Keep "Skip for now" as a secondary fallback when not yet captured.
@@ -66,7 +65,7 @@ struct CalibrationOnboardingView: View {
                         }
                         PerchTextButton(title: "Re-calibrate", color: Palette.sage) {
                             withAnimation(.easeInOut(duration: 0.3)) {
-                                capturePhase = .ready
+                                capturePhase = .aligning
                             }
                         }
                     }
@@ -89,25 +88,25 @@ struct CalibrationOnboardingView: View {
 
     private var calibrationIcon: String {
         switch capturePhase {
-        case .ready: return "figure.seated.side"
-        case .capturing: return "scope"
+        case .aligning: return "figure.seated.side"
+        case .holding: return "scope"
         case .captured: return "checkmark.circle"
         }
     }
 
     private var calibrationTitle: String {
         switch capturePhase {
-        case .ready: return "Sit the way you'd\nlike to sit all day."
-        case .capturing: return "Hold steady…"
+        case .aligning: return "Sit the way you'd\nlike to sit all day."
+        case .holding: return "Hold steady…"
         case .captured: return "Perfectly set."
         }
     }
 
     private var calibrationSubtitle: String {
         switch capturePhase {
-        case .ready:
-            return "Get comfortable and upright. Then hold your head still — the ring fills when you're steady."
-        case .capturing:
+        case .aligning:
+            return "Get comfortable and upright. Center the dot and hold still — the ring fills when you're steady."
+        case .holding:
             return "Almost there. Keep your head still just a moment longer."
         case .captured:
             return "That's your good posture. Perch will gently let you know whenever you drift away from it."
