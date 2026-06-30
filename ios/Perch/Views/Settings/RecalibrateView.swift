@@ -32,7 +32,7 @@ struct RecalibrateView: View {
                     .multilineTextAlignment(.center)
                 Text(capturePhase == .captured
                      ? "Perch will measure from this new posture."
-                     : "Get comfortable and upright. Hold your head still — the ring fills when you're steady.")
+                     : "Find a comfortable, upright position and hold it. The ring fills when you're steady.")
                     .font(.body)
                     .foregroundStyle(Palette.inkSoft)
                     .multilineTextAlignment(.center)

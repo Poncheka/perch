@@ -105,7 +105,7 @@ struct CalibrationOnboardingView: View {
     private var calibrationSubtitle: String {
         switch capturePhase {
         case .aligning:
-            return "Get comfortable and upright. Center the dot and hold still — the ring fills when you're steady."
+            return "Find a comfortable, upright position and hold it. The ring fills when you're steady."
         case .holding:
             return "Almost there. Keep your head still just a moment longer."
         case .captured:

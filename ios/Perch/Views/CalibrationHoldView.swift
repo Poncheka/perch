@@ -2,14 +2,14 @@
 //  CalibrationHoldView.swift
 //  Perch
 //
-//  A polished, sensor-reactive "find your center, then hold" calibration.
+//  A polished, sensor-reactive "find your posture, then hold" calibration.
 //  Think Face ID enrollment meets a spirit level meets a camera-scan ring.
 //
 //  The bubble moves in 2D inside a large ring — horizontal from head ROLL,
-//  vertical from PITCH (yaw ignored). Center the dot and hold still; a
-//  progress arc sweeps from 12 o'clock, filling over 3 seconds. Haptic ticks
-//  at 25/50/75%. If you drift, the arc unwinds smoothly. On completion a
-//  checkmark draws itself in the center via stroke-trim animation.
+//  vertical from PITCH (yaw ignored). A provisional reference is captured at
+//  the start of each attempt, so the dot sits at CENTER automatically when
+//  the user holds their chosen posture. Steadiness is measured as low variance
+//  of the RELATIVE (reference-relative) position.
 //
 //  Magnet assist: within ~1.3× the center zone, the rendered dot eases
 //  slightly toward exact center so docking feels satisfying (visual only —
@@ -21,9 +21,10 @@
 
 import SwiftUI
 import Combine
+import CoreHaptics
 
 enum CapturePhase: Equatable {
-    /// Bubble outside the center zone — amber, "Center your head."
+    /// Bubble outside the center zone — amber, "Sit the way you'd like to sit, then hold still."
     case aligning
     /// Bubble inside center zone + steady — sage, progress arc fills.
     case holding
@@ -75,6 +76,12 @@ struct CalibrationHoldView: View {
 
     // MARK: - Internal state
 
+    /// Provisional reference captured at the start of each attempt.
+    /// The bubble position is RELATIVE to this — when the user holds their
+    /// chosen posture, the dot sits at CENTER automatically.
+    @State private var referencePitch: Double = 0
+    @State private var referenceRoll: Double = 0
+
     @State private var positionSamples: [CGPoint] = []
     @State private var elapsed: Double = 0
     @State private var steadyTime: Double = 0     ///< Accumulated seconds of center+steady.
@@ -92,10 +99,13 @@ struct CalibrationHoldView: View {
         return Date().timeIntervalSince(ts) < staleThreshold
     }
 
-    /// Raw 2D position from sensor (no magnet assist).
+    /// Raw 2D position RELATIVE to the provisional reference.
+    /// When the user holds their chosen posture, the dot sits at center.
     private var sensorPosition: CGPoint {
-        let clampedPitch = max(-dotRange, min(dotRange, livePitch))
-        let clampedRoll = max(-dotRange, min(dotRange, liveRoll))
+        let relativePitch = livePitch - referencePitch
+        let relativeRoll = liveRoll - referenceRoll
+        let clampedPitch = max(-dotRange, min(dotRange, relativePitch))
+        let clampedRoll = max(-dotRange, min(dotRange, relativeRoll))
         return CGPoint(
             x: (clampedRoll / dotRange) * ringRadius,
             y: (clampedPitch / dotRange) * ringRadius
@@ -147,7 +157,7 @@ struct CalibrationHoldView: View {
     private var copyText: String {
         if !hasLiveData { return "Waiting for AirPods…" }
         switch phase {
-        case .aligning: return "Center your head."
+        case .aligning: return "Sit the way you'd like to sit, then hold still."
         case .holding: return "Hold steady…"
         case .captured: return "Calibrated."
         }
@@ -163,7 +173,15 @@ struct CalibrationHoldView: View {
             Text(copyText)
                 .font(.system(.subheadline, weight: .medium))
                 .foregroundStyle(phase == .captured ? Palette.sage : Palette.inkSoft)
+                .multilineTextAlignment(.center)
                 .animation(.easeInOut(duration: 0.3), value: copyText)
+
+            // Live debug readout — raw pitch / roll
+            if phase != .captured {
+                Text(String(format: "pitch %.1f°  roll %.1f°", livePitch, liveRoll))
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(Palette.mist)
+            }
         }
         .onAppear { handleAppear() }
         .onChange(of: phase) { _, newPhase in handlePhaseChange(newPhase) }
@@ -257,6 +275,7 @@ struct CalibrationHoldView: View {
 
     private func handleAppear() {
         if phase == .aligning {
+            captureReference()
             reset()
         }
     }
@@ -264,12 +283,22 @@ struct CalibrationHoldView: View {
     private func handlePhaseChange(_ newPhase: CapturePhase) {
         switch newPhase {
         case .aligning:
+            // Re-establish the provisional reference on Re-calibrate
+            // so the dot centers on the user's current posture.
+            captureReference()
             reset()
         case .holding:
             startHolding()
         case .captured:
             playCapturedAnimation()
         }
+    }
+
+    /// Snapshot the current live pitch/roll as the provisional reference.
+    /// After this, the dot sits at center when the user holds their chosen posture.
+    private func captureReference() {
+        referencePitch = livePitch
+        referenceRoll = liveRoll
     }
 
     private func reset() {
@@ -350,7 +379,7 @@ struct CalibrationHoldView: View {
                 unwindProgress()
             }
         } else {
-            // --- ALIGNING: check if user has found center ---
+            // --- ALIGNING: check if user has settled into their posture ---
             if hasLiveData && centered && steady {
                 steadyTime += tickInterval
                 if steadyTime >= settleDuration {
